@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "track",
+    "track_macros",
+]
+resolver = "2"

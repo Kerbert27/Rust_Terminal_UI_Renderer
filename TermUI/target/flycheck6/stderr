@@ -1,0 +1,6 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+warning: lib v0.1.0 (C:\Users\Tyler\Documents\VSC\Projects\RustProjects\TermUI) ignoring invalid dependency `any` which is missing a lib target
+    Blocking waiting for file lock on package cache
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.50s
