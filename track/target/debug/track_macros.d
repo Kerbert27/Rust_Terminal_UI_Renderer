@@ -1,1 +1,0 @@
-C:\Users\Tyler\Documents\VSC\Projects\RustProjects\track\target\debug\track_macros.dll: C:\Users\Tyler\Documents\VSC\Projects\RustProjects\track\track\src\lib.rs C:\Users\Tyler\Documents\VSC\Projects\RustProjects\track\track_macros\src\lib.rs
