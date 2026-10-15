@@ -423,7 +423,7 @@ impl Camera {
             transform.forward().to_vec(),
             p
         ]).transpose();
-        Camera {transform, view, view_angles: (0.0, 0.0), distance_to_target: 5.0}
+        Camera {transform, view, view_angles: (0.0, 0.0), distance_to_target: 1.0}
     }
 
     pub fn look_at(&mut self, target: [f32; 3], up: [f32; 3]) -> Matrix::<4> {
