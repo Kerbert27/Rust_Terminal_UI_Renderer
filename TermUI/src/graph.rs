@@ -1,13 +1,9 @@
 use std::collections::HashMap;
-use std::io::Write;
-use std::{collections::VecDeque, io::Stdout};
+use std::{collections::VecDeque};
 
-use crossterm::{QueueableCommand, terminal};
-use crossterm::cursor::MoveTo;
 use crossterm::style::Color;
 use crossterm::style::Stylize;
 
-use super::matrix::*;
 use super::*;
 
 #[derive(Clone)]

@@ -1,13 +1,9 @@
 #![allow(non_snake_case)]
-use crossterm::cursor::{MoveTo};
-use crossterm::event::Event;
 use crossterm::style::{self, Color, StyledContent, Stylize};
 use crossterm::terminal::{self};
-use crossterm::{QueueableCommand, cursor};
 use image::imageops::FilterType;
 use image::{DynamicImage, GenericImageView, ImageReader, Rgb};
 use std::collections::VecDeque;
-use std::io::{Stdout, Write};
 use std::time::{self, Duration, Instant};
 
 const BAR_H: &str = "─";
@@ -109,7 +105,6 @@ pub struct Rectangle {
 }
 
 impl Rectangle {
-    #[track(Rect_Draw)]
     pub fn draw(&self, stdout: &mut StdoutBuffer) {
         let (line_h, line_v) = self.fill.get_lines();
         
@@ -422,7 +417,6 @@ pub fn draw_line(stdout: &mut StdoutBuffer, start: [f32; 2], end: [f32; 2], glyp
 }
 
 ///Safer version of [`Stdout.queue(MoveTo)`] and [`Stdout.write()`]. Only writes to stdout if row and col are within bounds of terminal size.
-#[track]
 pub fn draw_at(stdout: &mut StdoutBuffer, col: usize, row: usize, bytes: String) -> bool {
     let (max_width, max_height) = terminal::size().unwrap();
     if (col > max_width as usize) || (row > max_height as usize) {return false}
