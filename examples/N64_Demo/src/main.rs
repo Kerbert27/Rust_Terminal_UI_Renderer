@@ -12,10 +12,12 @@ use std::io::{self, Result, Stdout, Write};
 use std::process::Command;
 use std::{env};
 use std::time::{self, Duration, Instant};
+use std::rc::Rc;
+use std::cell::RefCell;
 
 use lib::*;
 
-const TARGET_FRAMERATE: f32 = 30.0;
+const TARGET_FRAMERATE: f32 = 60.0;
 
 fn main() {
     let _args: Vec<String> = env::args().collect();
@@ -66,8 +68,8 @@ fn LaunchTerminal() {
     context.draw_time = Timer::new(10);
     context.start_time = time::Instant::now();
     loop {
+        Update(&mut context).unwrap();
         if context.delta_time > 1.0 / TARGET_FRAMERATE {
-            Update(&mut context).unwrap();
             stdout.queue(terminal::BeginSynchronizedUpdate).unwrap();
             stdout.queue(cursor::Hide).unwrap();
             stdout.queue(terminal::DisableLineWrap).unwrap();
@@ -78,11 +80,11 @@ fn LaunchTerminal() {
             stdout.queue(terminal::EndSynchronizedUpdate).unwrap();
             
             
-            previous_time = time::Instant::now();
-
+            
             context.buffer.write_to(&mut stdout);
             stdout.flush().unwrap();
-            context.frame = (context.frame + 1) % TARGET_FRAMERATE as u32;
+            //context.frame = (context.frame + 1) % TARGET_FRAMERATE as u32;
+            previous_time = time::Instant::now();
 
         }
         
@@ -128,10 +130,12 @@ fn InitializeContext() -> Context {
 
     let camera = Camera::new(Transform {position: [0.0, 0.0, 5.0], scale: [0.0,0.0,0.0], rotation: [0.0, 0.0, 0.0]});
 
+    let cameraPtr = Rc::from(RefCell::new(camera));
+
     let mut pixArray: ScreenBuffer = ScreenBuffer::new(
         Rectangle { x: 0, y: 0, width: W, height: H, fill: RectFill::Empty},
         Box::new(pixel_update),
-        camera.clone()
+        Rc::clone(&cameraPtr)
     );
 
     // dbg!(camera.clone().view);
@@ -195,7 +199,7 @@ fn InitializeContext() -> Context {
             1, 4, 5,
             2, 3, 6
         ]
-        ,transform.clone(), camera.view.clone(), projectionP.clone(), lib::RasterMode::AsTriangles
+        ,transform.clone(), cameraPtr.borrow_mut().view.clone(), projectionP.clone(), lib::RasterMode::AsTriangles
     );
 
     let b_model = Model::new(
@@ -215,8 +219,10 @@ fn InitializeContext() -> Context {
             1, 4, 5,
             2, 3, 6
         ]
-        ,transform, camera.view.clone(), projectionP.clone(), lib::RasterMode::AsTriangles
+        ,transform, cameraPtr.borrow_mut().view.clone(), projectionP.clone(), lib::RasterMode::AsTriangles
     );
+
+
 
     let mut m = model.clone();
     let mut b = b_model.clone();
@@ -227,11 +233,13 @@ fn InitializeContext() -> Context {
             2 => &[2.0, 0.0, 2.0],
             _ => &[0.0, 0.0, 0.0]
         };
-        let _ = m.vertices.iter().map(|v| (add(&v.0, v_add), Rgb([0.0, 255.0, 0.0])));
-        //let mut ind = m.indices.iter().map(|i| i + model.vertices.len()).collect();
-        // model.vertices.append(&mut v);
-        // model.indices.append(&mut ind);
-        model.combine(&mut m.clone());
+        if i < 3{
+            let mut v = m.vertices.iter().map(|v| (add(&v.0, v_add), Rgb([0.0, 255.0, 0.0]))).collect();
+            let mut ind = m.indices.iter().map(|i| i + model.vertices.len()).collect();
+            model.vertices.append(&mut v);
+            model.indices.append(&mut ind);
+        }
+        //model.combine(&mut m.clone());
         b.vertices = b.vertices.iter().map(
             |v| 
             (Matrix::<4>::rotate_around(0.0, -PI/2.0, 0.0, [-1.5, 0.0, -0.5]).mul_v(&v.0).unwrap(), Rgb([0.0, 255.0, 255.0]))
@@ -241,7 +249,7 @@ fn InitializeContext() -> Context {
         model.indices.append(&mut b_ind);
     }
 
-    let point = Model::point([0.0, 0.0, 0.0], Rgb([255.0, 255.0, 255.0]), camera.view.clone(), projectionP.clone());
+    let point = Model::point([0.0, 0.0, 0.0], Rgb([255.0, 255.0, 255.0]), cameraPtr.borrow_mut().view.clone(), projectionP.clone());
     pixArray.add_model(&model);
     //pixArray.add_model(&point);
     
@@ -267,7 +275,7 @@ fn Update(context: &mut Context) -> Result<bool> {
             Element::Box(r) => {},
             Element::Sprite(s) => {},
             Element::TextBox(t) => {
-                
+                t.text = format!("FPS: {}", 1.0 / context.delta_time);
             },
             Element::ScreenBuffer(p) => {
                 p.update(context.delta_time as f32, context.poll_event.clone());

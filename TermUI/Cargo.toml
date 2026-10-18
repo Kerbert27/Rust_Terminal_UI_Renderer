@@ -7,10 +7,8 @@ edition = "2024"
 crate-type = ["dylib"]
 
 [dependencies]
-any = "0.0.1"
 crossterm = "0.29.0"
 image = "0.25.10"
 imageproc = "0.27.0"
-png = "0.18.1"
 track_macros = { path = "../track/track_macros" }
 track = {path = "../track/track" }

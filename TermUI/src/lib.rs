@@ -17,6 +17,9 @@ const DOT_V: &str = "┇";
 
 const GRID_INTERVAL: u16 = 10;
 
+mod model;
+pub use model::*;
+
 mod matrix;
 pub use matrix::*;
 
