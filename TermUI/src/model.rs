@@ -1,6 +1,6 @@
 use std::{fs::{self, File}, io::{BufRead, BufReader}};
 
-use image::{Pixel, Rgb};
+use image::Pixel;
 use imageproc::integral_image::ArrayData;
 
 use super::*;
@@ -19,6 +19,7 @@ pub struct Model {
 
 
 impl Model {
+    ///Creates new model from given vertices and indices for triangulation. 
     pub fn new(vertices: Vec<([f32;3], Rgb<f32>)>, indices: Vec<usize>, transform: Transform, view: Matrix<4>, projection: Matrix<4>, raster_mode: RasterMode) -> Model {
 
         let modelViewProjection: Matrix<4> = projection.mul(&view.mul(&transform.get_world()).unwrap()).unwrap();
@@ -26,6 +27,7 @@ impl Model {
         Model {vertices, indices, transform, raster_mode, view, projection, modelViewProjection}
     }
 
+    ///Create model from .obj file path.
     pub fn load_from_obj(file_path: &str, transform: Transform, view: Matrix<4>, projection: Matrix<4>, raster_mode: RasterMode) -> Self {
         let contents = File::open(file_path).unwrap();
         let reader = BufReader::new(contents);
@@ -90,6 +92,7 @@ impl Model {
         self.modelViewProjection = self.projection.mul(&self.view.mul(&self.transform.get_world()).unwrap()).unwrap();
     }
 
+    ///Sets each vertex into pixel buffer as a single point.
     pub fn rasterize_as_points(&mut self, pixel_buffer: &mut Vec<Option<Fragment>>, clipBox: &Rectangle) {
         let mut ws = Vec::new();
         for vertex in self.vertices.iter() {
@@ -115,6 +118,7 @@ impl Model {
         }
     }
 
+    ///Rasterize each face into pixel buffer as triangle polygon. 
     pub fn rasterize_as_triangles(&mut self, mut pixel_buffer: &mut Vec<Option<Fragment>>, clipBox: Rectangle){
         for verts in self.indices.chunks_exact(3) {
             //local positions of each vertex of triangle
@@ -180,6 +184,7 @@ impl Model {
         }
     }
 
+    ///Rasterize each vertex into pixel buffer as wireframe mesh, with adjacent points in index buffer being defined as edges.
     pub fn rasterize_as_lines(&mut self, pixel_buffer: &mut Vec<Option<Fragment>>, clipBox: &Rectangle) {
         let mut zs = Vec::new();
         for mut v in self.indices.chunks(3) {

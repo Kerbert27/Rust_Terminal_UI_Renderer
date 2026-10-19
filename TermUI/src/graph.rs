@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 use std::{collections::VecDeque};
 
-use crossterm::style::Color;
-use crossterm::style::Stylize;
 
 use super::*;
 

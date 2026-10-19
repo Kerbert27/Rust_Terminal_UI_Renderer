@@ -1,6 +1,5 @@
-use image::{Pixel, Rgb};
-use crossterm::{event::*, terminal};
-use crossterm::style::{Color, Stylize};
+
+use crossterm::event::*;
 use crossterm::{QueueableCommand, cursor};
 use std::any::Any;
 use std::cell::RefCell;
@@ -10,9 +9,7 @@ use std::io::{Stdout, Write};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
-use std::time::Instant;
 
-use super::matrix::*;
 use super::*;
 
 #[derive(Clone)]
@@ -176,7 +173,6 @@ pub struct StdoutBuffer {
 }
 
 impl StdoutBuffer {
-    const cell_width: usize = 2;
     pub fn new(width: usize, height: usize) -> Self {
         let mut buffer = Vec::new();
         let mut row_buf = Vec::new();
@@ -356,10 +352,6 @@ impl ScreenBuffer {
         
 
         for m in self.models.iter_mut() {
-            //m.transform.rotation.2 += 0.0001;
-            //m.transform.rotation.1 += 0.0001;
-            //m.transform.rotation.1 += 50.0 * delta_time * PI/180.0;
-            //m.transform.rotation.0 += 50.0 * delta_time * PI/180.0;
             m.update((self.rect.x as f32 * 2.0, self.rect.y as f32), &mut self.camera.borrow_mut());
         }
 
@@ -371,6 +363,7 @@ impl ScreenBuffer {
     
     pub const TILE_RES: usize = 5;
     pub fn draw(&mut self, stdout: &mut StdoutBuffer, time: Instant) {
+        //Rasterize each model in own thread.
         thread::scope(|s: &thread::Scope<'_, '_>| {
             let buffer: Arc<Mutex<Vec<Option<Fragment>>>> = Arc::new(Mutex::new(self.pixels.clone()));
             let mut handles: Vec<thread::ScopedJoinHandle<'_, ()>> = Vec::new();
@@ -394,13 +387,6 @@ impl ScreenBuffer {
                 handles.push(handle);
                 
                 self.pixels = p.recv().unwrap();
-                
-                // self.pixels = r.iter()
-                //     .zip(self.pixels.iter())
-                //     .map(|(rf, pf )| 
-                //     if rf.is_some() && pf.is_none() {rf.clone()}
-                //     else {pf.clone()})
-                //     .collect();
             }
         });
     
@@ -409,55 +395,25 @@ impl ScreenBuffer {
         let mut output: Vec<_> = Vec::with_capacity((self.rect.width * self.rect.height) as usize);
         output.resize((self.rect.width * self.rect.height) as usize, String::from(" "));
 
-        let mut strings = Vec::<String>::new();
-        let mut newline = false;
-        let (max_width, max_height) = terminal::size().unwrap();
+        //Equivalent to fragment shading.
         for (i , frag) in self.pixels.iter().enumerate() {
-            let row = i / self.rect.width as usize;
-            let col = i % self.rect.width as usize;
-            // if (row >= self.rect.height as usize - 1) || (row >= max_height as usize){
-            //     break;
-            // }
-
-            // if (self.rect.x as usize > col) || (self.rect.y as usize > row) || (2 * col >= max_width as usize - 1){
-            //     continue;
-            // }
-
-            // if (col >= self.rect.width as usize - 1) {
-            //     newline = true;
-            //     continue;
-            // }
-            // if newline {
-
-            //     //strings.push(String::from("\n"));
-            //     newline = false;
-            // }
             
             if frag.is_none() {
                 continue;
             }
+            
             let frag = frag.clone().unwrap();
-            let (ascii, c) = (self.pixel_update)(self.lightPosition, frag.clone(), time.elapsed().as_secs_f32());
-            let [r, g, b] = c.0;
-            
-            //let out = ascii.with(Color::Rgb {r: r as u8, g: g as u8, b: b as u8}).to_string();
-            
-            if self.rect.x + self.rect.width > frag.position[0] as u16 && self.rect.y + self.rect.height > frag.position[1] as u16 {
+
+            //Skip drawing if fragment is outside bounds of screen.
+            if self.rect.right() > frag.position[0] as u16 && self.rect.bottom() > frag.position[1] as u16 {
+                let (ascii, c) = (self.pixel_update)(self.lightPosition, frag.clone(), time.elapsed().as_secs_f32());
+                let [r, g, b] = c.0;
                 for (i, char) in ascii.chars().enumerate() {
                     stdout.write(frag.position[0] as usize * 2 + i, frag.position[1] as usize, char.with(Color::Rgb {r: r as u8, g: g as u8, b: b as u8}).to_string());
-                    //stdout.write(frag.position[0] as usize * 2 + 1, frag.position[1] as usize, "X".to_string());
                 }
             }
 
         }
-
-        let test = String::from_iter(strings.into_iter());
-
-        //stdout.write(self.rect.x as usize, self.rect.y as usize, test);
-        // stdout.queue(cursor::MoveTo(self.rect.x, self.rect.y)).unwrap();
-        //stdout.write_all(0, 0, test);
-
-
 
         self.pixels.fill(None);
 

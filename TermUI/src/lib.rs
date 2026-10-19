@@ -1,10 +1,10 @@
 #![allow(non_snake_case)]
-use crossterm::style::{self, Color, StyledContent, Stylize};
-use crossterm::terminal::{self};
-use image::imageops::FilterType;
-use image::{DynamicImage, GenericImageView, ImageReader, Rgb};
-use std::collections::VecDeque;
-use std::time::{self, Duration, Instant};
+pub use crossterm::style::{self, Color, StyledContent, Stylize};
+pub use crossterm::terminal::{self};
+pub use image::imageops::FilterType;
+pub use image::{DynamicImage, GenericImageView, ImageReader, Rgb};
+pub use std::collections::VecDeque;
+pub use std::time::{self, Duration, Instant};
 
 const BAR_H: &str = "─";
 const BAR_V: &str = "┃";
@@ -15,7 +15,6 @@ const BAR_BR: &str = "┛";
 const DOT_H: &str = "┅";
 const DOT_V: &str = "┇";
 
-const GRID_INTERVAL: u16 = 10;
 
 mod model;
 pub use model::*;
@@ -125,10 +124,12 @@ impl Rectangle {
         }
     }
 
+    ///Eq. to x + width.
     pub fn right(&self) -> u16 {
         self.x + self.width
     }
 
+    ///Eq. to y + height.
     pub fn bottom(&self) -> u16 {
         self.y + self.height
     }

@@ -1,24 +1,17 @@
 #![allow(non_snake_case)]
 
-use crossterm::cursor::MoveTo;
 use crossterm::event::{self, Event, poll, read};
-use crossterm::style::{Color, Stylize};
-use crossterm::{QueueableCommand, terminal, cursor};
-use image::{Pixel, Rgb};
-use lib::{Model, Quad};
+use crossterm::{QueueableCommand, cursor};
 use std::cell::RefCell;
-use std::collections::VecDeque;
 use std::f32::consts::PI;
 use std::io::{self, Result, Stdout, Write};
 use std::process::Command;
 use std::rc::Rc;
-use std::sync::Arc;
-use std::{env};
-use std::time::{self, Duration, Instant};
+use std::env;
 
 use lib::*;
 
-const TARGET_FRAMERATE: f32 = 30.0;
+const TARGET_FRAMERATE: f32 = 60.0;
 
 fn main() {
     let _args: Vec<String> = env::args().collect();
@@ -70,8 +63,8 @@ fn LaunchTerminal() {
     context.draw_time = Timer::new(10);
     context.start_time = time::Instant::now();
     loop {
-        if context.delta_time > 1.0 / TARGET_FRAMERATE {
-            Update(&mut context).unwrap();
+        Update(&mut context).unwrap();
+        if context.delta_time >= 1.0 / TARGET_FRAMERATE {
             stdout.queue(terminal::BeginSynchronizedUpdate).unwrap();
             stdout.queue(cursor::Hide).unwrap();
             stdout.queue(terminal::DisableLineWrap).unwrap();
@@ -82,12 +75,12 @@ fn LaunchTerminal() {
             stdout.queue(terminal::EndSynchronizedUpdate).unwrap();
             
             
-            previous_time = time::Instant::now();
-
+            
             context.buffer.write_to(&mut stdout);
             stdout.flush().unwrap();
             context.frame = (context.frame + 1) % TARGET_FRAMERATE as u32;
-
+            
+            previous_time = time::Instant::now();
         }
         
         
@@ -118,7 +111,7 @@ fn pixel_update(lightPositon: [f32;3], input: Fragment, time: f32) -> (String, i
     };
 
     let c = Matrix::lerp(input.color.0, input.color.0.map(|p| -p + 255.0), (time % 1.0));
-    return (ascii, n);
+    return (ascii, input.color);
 }
 
 fn InitializeContext() -> Context {
@@ -204,11 +197,5 @@ fn Draw(context: &mut Context) {
             Element::Graph(g) => g.draw(&mut context.buffer),
             Element::Timeline(t) => t.draw(&mut context.buffer),
         }
-
-        //dbg!(&context.buffer.buffer);
-    }
-
-    
-
-    
+    }     
 }
