@@ -120,7 +120,7 @@ impl<const N: usize> Matrix<N> {
         let c4 = (far * near)/(near - far);
 
         Matrix::from(vec![
-            vec![f / aspect, 0.0, 0.0, 0.0],
+            vec![-f / aspect, 0.0, 0.0, 0.0],
             vec![0.0, f, 0.0, 0.0],
             vec![0.0, 0.0, c3, c4],
             vec![0.0, 0.0, -1.0, 0.0],

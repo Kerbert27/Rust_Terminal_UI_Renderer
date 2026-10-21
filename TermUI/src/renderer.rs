@@ -309,12 +309,12 @@ impl ScreenBuffer {
                             //self.models[0].transform.rotation.1 += 50.0 * delta_time* PI/180.0;
                         },
                         KeyEvent {kind: KeyEventKind::Press, code: KeyCode::Left, ..} => {
-                            self.camera.borrow_mut().view_angles.0 += 50.0 * PI/180.0* delta_time;
+                            self.camera.borrow_mut().view_angles.0 += 100.0 * PI/180.0* delta_time;
                             //self.camera.update();
                             //self.models[0].transform.rotation.0 -= 50.0 * delta_time* PI/180.0;//Angle::Radians(self.models[0].transform.rotation.1.to() + 0.001);
                         },
                         KeyEvent {kind: KeyEventKind::Press, code: KeyCode::Right, ..} => {
-                            self.camera.borrow_mut().view_angles.0 -= 50.0 * PI/180.0* delta_time;
+                            self.camera.borrow_mut().view_angles.0 -= 100.0 * PI/180.0* delta_time;
                             //self.camera.update();
                             //self.models[0].transform.rotation.0 += 50.0 * delta_time* PI/180.0; //Angle::Radians(self.models[0].transform.rotation.1.to() - 0.001);
                         },
@@ -341,50 +341,29 @@ impl ScreenBuffer {
         for m in self.models.iter_mut() {
             m.update(&mut self.camera.borrow_mut());
         }
+        //panic!();
 
-        self.lightPosition = Matrix::<4>::rotate_y(0.1 * delta_time).mul_v(&self.lightPosition).unwrap();
+        //self.lightPosition = Matrix::<4>::rotate_y(1.0 * delta_time).mul_v(&self.lightPosition).unwrap();
     }
     
     
     
     #[track]
     fn rasterize(&mut self) {
-        // thread::scope(|s: &thread::Scope<'_, '_>| {
-        //     let buffer: Arc<Mutex<Vec<Option<Fragment>>>> = Arc::new(Mutex::new(self.pixels.clone()));
-        //     let mut handles: Vec<thread::ScopedJoinHandle<'_, ()>> = Vec::new();
             for m in self.models.iter_mut() {
-                // let buffer_clone: Arc<Mutex<Vec<Option<Fragment>>>> = Arc::clone(&buffer);
-                let clipBox: Rectangle = Rectangle { 
-                     x: self.rect.x, y: self.rect.y, width: self.rect.x + self.rect.width, height: self.rect.height + self.rect.y, fill: RectFill::Empty };
-                // let (t, p) = mpsc::channel();
-                
-                // let handle: thread::ScopedJoinHandle<'_, ()> = s.spawn(move || {
-                //     let mut buf: Vec<Option<Fragment>> = buffer_clone.lock().unwrap().clone();
-                    match m.raster_mode {
-                        RasterMode::AsLines => m.rasterize_as_lines(&mut self.pixels, &clipBox),
-                        RasterMode::AsPoints => m.rasterize_as_points(&mut self.pixels, &clipBox),
-                        RasterMode::AsTriangles => m.rasterize_as_triangles(&mut self.pixels, clipBox),
-                    }
-                    
-                    //t.send(buf).unwrap();
-                //});
-
-                //handles.push(handle);
-                
-                //self.pixels = p.recv().unwrap();
+                let clipBox: Rectangle = Rectangle {x: self.rect.x, y: self.rect.y, width: self.rect.x + self.rect.width, height: self.rect.height + self.rect.y, fill: RectFill::Empty };
+                match m.raster_mode {
+                    RasterMode::AsLines => m.rasterize_as_lines(&mut self.pixels, &clipBox),
+                    RasterMode::AsPoints => m.rasterize_as_points(&mut self.pixels, &clipBox),
+                    RasterMode::AsTriangles => m.rasterize_as_triangles(&mut self.pixels, clipBox),
+                }   
             }
-
-            // for handle in handles {
-            //     handle.join().unwrap();
-            // }
-        //});
     }
 
     #[track]
     fn frag_shader(&mut self, stdout: &mut StdoutBuffer, time: Instant) {
         //Equivalent to fragment shading.
         for frag in self.pixels.iter(){
-            
             if frag.is_none() {
                 continue;
             }
@@ -400,7 +379,6 @@ impl ScreenBuffer {
                 }
             }
         }
-
         self.pixels.fill(None);
     }
 

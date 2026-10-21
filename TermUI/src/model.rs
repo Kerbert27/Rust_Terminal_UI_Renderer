@@ -120,13 +120,13 @@ impl Model {
         Ok(true)
     }
 
-    // pub fn point(position: [f32; 4], color: Rgb<f32>, view: Matrix<4>, projection: Matrix<4>) -> Self {
-    //     let transform = Transform {position, scale: [0.0, 0.0, 0.0], rotation: [0.0, 0.0, 0.0]};
+    pub fn point(position: [f32; 3], color: Rgb<f32>, view: Matrix<4>, projection: Matrix<4>) -> Self {
+        let transform = Transform {position, scale: [0.0, 0.0, 0.0], rotation: [0.0, 0.0, 0.0]};
 
-    //     //let world= transform.get_world();
+        //let world= transform.get_world();
 
-    //     Self::new(vec![VertexData::new_pc(position, color)], vec![0], transform, view, projection, RasterMode::AsPoints)
-    // }
+        Self::new(vec![VertexData::new_pc(position, color)], vec![0], transform, view, projection, RasterMode::AsPoints)
+    }
 
     ///Appends other's vertices and indices into self, leaving other empty. Does not change transform or raster mode of self.
     pub fn combine(&mut self, other: &mut Model) {
@@ -146,11 +146,14 @@ impl Model {
         // let up = Matrix::<4>::create_rotation(camera.view_angles.1, camera.view_angles.0, 0.0).mul_v(&[0.0, 1.0, 0.0]).unwrap();
         
         //CORRECT ORBIT AROUND TARGET
-        let target = [100.0, 10.0, 10.0];//*camera.transform.forward()[0..3].as_array::<3>().unwrap();
+        camera.transform.rotation = [camera.view_angles.1, camera.view_angles.0, 0.0];
+        let target = [0.0, 0.0, 0.0];//camera.target;//*camera.transform.forward()[0..3].as_array::<3>().unwrap();
         let eye = Matrix::<4>::rotate_around(camera.view_angles.1, camera.view_angles.0, 0.0, target).mul_v(&camera.transform.position).unwrap();
         let up = *camera.transform.up()[0..3].as_array::<3>().unwrap();
 
         camera.view = Matrix::<4>::create_look_at(eye, target, up);
+
+        //dbg!(camera.target, self.transform.position);
 
         self.modelViewProjection = self.projection.mul(&camera.view.mul(&self.transform.get_world()).unwrap()).unwrap();
 
@@ -206,7 +209,7 @@ impl Model {
             let to_screen = |c: &[f32; 4]| -> [f32; 4] {
                 let inv_w = 1.0 / c[3];
                 let sx = (c[0] * inv_w * 0.5 + 0.5) * 0.5 * clipBox.width as f32;
-                let sy = (1.0 - (c[1] * inv_w * 0.5 + 0.5)) * 0.5 * clipBox.height as f32; // y down
+                let sy = (1.0 - (c[1] * inv_w * 0.5 + 0.5)) * 0.5 * clipBox.height as f32 + 10.0; // y down
                 [sx, sy, c[2] * inv_w, inv_w]
             };
 
