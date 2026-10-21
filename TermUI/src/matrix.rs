@@ -1,4 +1,4 @@
-use std::{fmt::Debug};
+use std::{fmt::Debug, ops::Add};
 
 
 #[derive(Clone)]
@@ -115,16 +115,15 @@ impl<const N: usize> Matrix<N> {
     }
 
     pub fn create_projection_persp(aspect: f32, fov: f32, far: f32, near: f32) -> Matrix<N> {
-        let a1 = 1.0 / (aspect * (fov/2.0).tan());
-        let b2 = 1.0 / (fov/2.0).tan();
-        let c3 = -far/(near - far);
-        let c4 = -(far * near)/(near - far);
+        let f = 1.0 / (fov / 2.0).tan();
+        let c3 = far/(near - far);
+        let c4 = (far * near)/(near - far);
 
         Matrix::from(vec![
-            vec![a1, 0.0, 0.0, 0.0],
-            vec![0.0, b2, 0.0, 0.0],
+            vec![f / aspect, 0.0, 0.0, 0.0],
+            vec![0.0, f, 0.0, 0.0],
             vec![0.0, 0.0, c3, c4],
-            vec![0.0, 0.0, 0.0, 1.0],
+            vec![0.0, 0.0, -1.0, 0.0],
         ])
     }
 
@@ -240,9 +239,22 @@ impl<const N: usize> Matrix<N> {
         //scale.mul(&rotation.mul(&translation).unwrap()).unwrap()
     }
 
-    // pub fn create_look_at(eye: [f32; N], target: [f32; N], up: [f32; N]) -> Matrix<N> {
+    pub fn create_look_at(eye: [f32; 3], target: [f32; 3], up: [f32; 3]) -> Matrix<4> {
+        let zaxis = normalize(&sub::<3>(&eye, &target));
+        let xaxis = normalize(&cross(&up, &zaxis));
+        let yaxis = cross(&zaxis, &xaxis);
+
+        let orientation = Matrix::<4>::from(vec![
+            vec![xaxis[0], yaxis[0], zaxis[0], 0.0],
+            vec![xaxis[1], yaxis[1], zaxis[1], 0.0],
+            vec![xaxis[2], yaxis[2], zaxis[2], 0.0],
+            vec![0.0, 0.0, 0.0, 1.0],
+        ]).transpose();
+
+        let translation = Matrix::<4>::create_translation(-eye[0], -eye[1], -eye[2]);
         
-    // }
+        orientation.mul(&translation).unwrap()
+    }
 
     pub fn transpose(&self) -> Matrix<N> {
         let mut m = Vec::new();

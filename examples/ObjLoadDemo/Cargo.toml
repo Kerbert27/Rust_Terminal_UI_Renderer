@@ -5,5 +5,7 @@ edition = "2024"
 
 [dependencies]
 lib = {path = "../../TermUI"}
+track_macros = { path = "../../track/track_macros" }
+track = {path = "../../track/track" }
 crossterm = "0.29.0"
 image = "0.25.10"

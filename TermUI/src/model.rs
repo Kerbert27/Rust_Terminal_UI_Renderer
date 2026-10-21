@@ -1,14 +1,43 @@
-use std::{fs::{self, File}, io::{BufRead, BufReader}};
+use std::{fmt::Error, fs::{self, File}, io::{BufRead, BufReader, Write}, path::Path};
 
-use image::Pixel;
+use image::{Rgb, Pixel};
 use imageproc::integral_image::ArrayData;
 
 use super::*;
 
+#[derive(Clone, Copy)]
+pub struct VertexData {
+    pub position: [f32; 4],
+    pub color: Rgb<f32>,
+    pub normal: Option<[f32; 3]>,
+    pub texCoord: Option<[f32; 2]>
+}
+
+impl VertexData {
+    pub fn new_p(position: [f32; 3]) -> Self {
+        VertexData { position: [position[0], position[1], position[2], 1.0], color: Rgb([255.0, 255.0, 255.0]), normal: None, texCoord: None }
+    }
+
+    pub fn new_pc(position: [f32; 3], color: Rgb<f32>) -> Self {
+        VertexData { position: [position[0], position[1], position[2], 1.0], color, normal: None, texCoord: None }
+    }
+
+    pub fn new_pcn(position: [f32; 3], color: Rgb<f32>, normal: [f32; 3]) -> Self {
+        VertexData { position: [position[0], position[1], position[2], 1.0], color, normal: Some(normal), texCoord: None }
+    }
+
+    pub fn new_pcnt(position: [f32; 3], color: Rgb<f32>, normal: [f32; 3], texCoord: [f32; 2]) -> Self {
+        VertexData { position: [position[0], position[1], position[2], 1.0], color, normal: Some(normal), texCoord: Some(texCoord) }
+    }
+
+    pub fn new_pct(position: [f32; 3], color: Rgb<f32>, texCoord: [f32; 2]) -> Self {
+        VertexData { position: [position[0], position[1], position[2], 1.0], color, normal: None, texCoord: Some(texCoord) }
+    }
+}
 
 #[derive(Clone)]
 pub struct Model {
-    pub vertices: Vec<([f32;3], Rgb<f32>)>,
+    pub vertices: Vec<VertexData>,
     pub indices: Vec<usize>,
     pub transform: Transform,
     pub raster_mode: RasterMode,
@@ -20,7 +49,7 @@ pub struct Model {
 
 impl Model {
     ///Creates new model from given vertices and indices for triangulation. 
-    pub fn new(vertices: Vec<([f32;3], Rgb<f32>)>, indices: Vec<usize>, transform: Transform, view: Matrix<4>, projection: Matrix<4>, raster_mode: RasterMode) -> Model {
+    pub fn new(vertices: Vec<VertexData>, indices: Vec<usize>, transform: Transform, view: Matrix<4>, projection: Matrix<4>, raster_mode: RasterMode) -> Model {
 
         let modelViewProjection: Matrix<4> = projection.mul(&view.mul(&transform.get_world()).unwrap()).unwrap();
 
@@ -33,9 +62,13 @@ impl Model {
         let reader = BufReader::new(contents);
         let mut verts = Vec::new();
         let mut indices = Vec::new();
+        let mut norms = Vec::new();
         for line in reader.lines() {
             let line = line.unwrap();
-            let chunks: Vec<&str> = line.split(' ').collect();
+            if line.is_empty(){continue;}
+            let chunks: Vec<&str> = line.split_ascii_whitespace().collect();
+            println!("{}", line);
+
             match chunks[0] {
                 "v" => {
                     let x: f32 = chunks[1].parse().unwrap();
@@ -52,21 +85,48 @@ impl Model {
                     indices.push(i3 - 1);
 
                 },
+                "vn" => {
+                    let x: f32 = chunks[1].parse().unwrap();
+                    let y: f32 = chunks[2].parse().unwrap();
+                    let z: f32 = chunks[3].parse().unwrap();
+                    norms.push([x, y, z]);
+                },
                 "#" => continue,
                 _ => continue
             }
         }
 
+        let verts = if !norms.is_empty() {
+            verts.iter().zip(norms).map(|v| VertexData::new_pcn(v.0.0, v.0.1, v.1)).collect()
+        } else {
+            verts.iter().map(|v| VertexData::new_pc(v.0, v.1)).collect()
+        };
+
         Model::new(verts, indices, transform, view, projection, raster_mode)
     }
 
-    pub fn point(position: [f32; 3], color: Rgb<f32>, view: Matrix<4>, projection: Matrix<4>) -> Self {
-        let transform = Transform {position, scale: [0.0, 0.0, 0.0], rotation: [0.0, 0.0, 0.0]};
+    pub fn save_to_obj(&self, file_path: &str) -> Result<bool, Error>{
+        let mut file = File::create(Path::new(file_path)).unwrap();
 
-        //let world= transform.get_world();
+        file.write("\n# Verticies\n".as_bytes()).unwrap();
+        file.write_all(self.vertices.iter().map(|v| format!("v {} {} {}", v.position[0], v.position[1], v.position[2]).to_string()).collect::<Vec<String>>().join("\n").as_bytes()).unwrap();
+        file.write("\n# Faces\n".as_bytes()).unwrap();
+        file.write_all(self.indices.chunks(3).map(|f| format!("f {} {} {}", f[0], f[1], f[2]).to_string()).collect::<Vec<String>>().join("\n").as_bytes()).unwrap();
+        if self.vertices[0].normal.is_some() {
+            file.write("\n# Normals\n".as_bytes()).unwrap();
+            file.write_all(self.vertices.iter().map(|v| format!("vn {} {} {}", v.normal.unwrap()[0], v.normal.unwrap()[1], v.normal.unwrap()[2]).to_string()).collect::<Vec<String>>().join("\n").as_bytes()).unwrap();
+        }
 
-        Self::new(vec![(position, color)], vec![0], transform, view, projection, RasterMode::AsPoints)
+        Ok(true)
     }
+
+    // pub fn point(position: [f32; 4], color: Rgb<f32>, view: Matrix<4>, projection: Matrix<4>) -> Self {
+    //     let transform = Transform {position, scale: [0.0, 0.0, 0.0], rotation: [0.0, 0.0, 0.0]};
+
+    //     //let world= transform.get_world();
+
+    //     Self::new(vec![VertexData::new_pc(position, color)], vec![0], transform, view, projection, RasterMode::AsPoints)
+    // }
 
     ///Appends other's vertices and indices into self, leaving other empty. Does not change transform or raster mode of self.
     pub fn combine(&mut self, other: &mut Model) {
@@ -77,26 +137,30 @@ impl Model {
 
     
 
-    pub fn update(&mut self, offset: (f32, f32), camera: &mut Camera) {
-        // let axis: [f32; 3] = [-self.transform.scale[0] / 2.0, -self.transform.scale[1] / 2.0, -self.transform.scale[2] / 2.0];
-        // let world: Matrix<4> = Matrix::<4>::create_world(
-        //     Matrix::<4>::create_translation(self.transform.position[0], self.transform.position[1], self.transform.position[2]),
-        //     Matrix::<4>::rotate_around(self.transform.rotation[0], self.transform.rotation[1], self.transform.rotation[2], axis),
-        //     Matrix::<4>::create_scale(self.transform.scale[0], self.transform.scale[1], self.transform.scale[2]),
-        // );
+    pub fn update(&mut self, camera: &mut Camera) {
 
-        self.view = camera.look_at([0.0, 0.0, 0.0], Matrix::<4>::create_rotation(camera.view_angles.1, camera.view_angles.0, 0.0).mul_v(&[0.0, 1.0, 0.0]).unwrap());
+        //FPS VIEW
+        // camera.transform.rotation = [camera.view_angles.1, camera.view_angles.0, 0.0];
+        // let target = add(&camera.transform.position, camera.transform.forward()[0..3].as_array::<3>().unwrap());
+        // let eye = camera.transform.position;
+        // let up = Matrix::<4>::create_rotation(camera.view_angles.1, camera.view_angles.0, 0.0).mul_v(&[0.0, 1.0, 0.0]).unwrap();
+        
+        //CORRECT ORBIT AROUND TARGET
+        let target = [100.0, 10.0, 10.0];//*camera.transform.forward()[0..3].as_array::<3>().unwrap();
+        let eye = Matrix::<4>::rotate_around(camera.view_angles.1, camera.view_angles.0, 0.0, target).mul_v(&camera.transform.position).unwrap();
+        let up = *camera.transform.up()[0..3].as_array::<3>().unwrap();
 
+        camera.view = Matrix::<4>::create_look_at(eye, target, up);
 
+        self.modelViewProjection = self.projection.mul(&camera.view.mul(&self.transform.get_world()).unwrap()).unwrap();
 
-        self.modelViewProjection = self.projection.mul(&self.view.mul(&self.transform.get_world()).unwrap()).unwrap();
     }
 
     ///Sets each vertex into pixel buffer as a single point.
     pub fn rasterize_as_points(&mut self, pixel_buffer: &mut Vec<Option<Fragment>>, clipBox: &Rectangle) {
         let mut ws = Vec::new();
         for vertex in self.vertices.iter() {
-            let [mut lx, mut ly, mut lz, w] = self.modelViewProjection.mul_v(&vertex.0).unwrap();
+            let [mut lx, mut ly, mut lz, w] = self.modelViewProjection.mul_v(&vertex.position).unwrap();
             ws.push((lx, ly, lz, w));
             lx /= w;
             ly /= w;
@@ -112,52 +176,56 @@ impl Model {
             pixel_buffer[index] = if pixel_buffer[index].is_some() && pixel_buffer[index].as_mut().unwrap().position[2] > lz {
                 pixel_buffer[index].clone()
             } else {
-                let [r, g, b] = vertex.1.data();
-                Some(Fragment {color: vertex.1, position: [lx as f32, ly as f32, lz], ascii: String::from("XX"), normal: normalize(&[r, g, b])})
+                let [r, g, b] = vertex.color.data();
+                Some(Fragment {color: vertex.color, position: [lx as f32, ly as f32, lz], ascii: String::from("XX"), normal: normalize(&[r, g, b])})
             }
         }
     }
 
     ///Rasterize each face into pixel buffer as triangle polygon. 
-    pub fn rasterize_as_triangles(&mut self, mut pixel_buffer: &mut Vec<Option<Fragment>>, clipBox: Rectangle){
+    pub fn rasterize_as_triangles(&mut self, pixel_buffer: &mut Vec<Option<Fragment>>, clipBox: Rectangle){
         for verts in self.indices.chunks_exact(3) {
             //local positions of each vertex of triangle
-            let vA: ([f32; 3], Rgb<f32>) = self.vertices[verts[0]];
-            let vB: ([f32; 3], Rgb<f32>) = self.vertices[verts[1]];
-            let vC: ([f32; 3], Rgb<f32>) = self.vertices[verts[2]];
+            let vA = self.vertices[verts[0]];
+            let vB = self.vertices[verts[1]];
+            let vC = self.vertices[verts[2]];
 
+            
             //color of each vertex
-            let colA: Rgb<f32> = vA.1;
-            let colB: Rgb<f32> = vB.1;
-            let colC: Rgb<f32> = vC.1;
+            let colA: Rgb<f32> = vA.color;
+            let colB: Rgb<f32> = vB.color;
+            let colC: Rgb<f32> = vC.color;
             
             //convert to screen-space
-            let clipA: Vec<f32> = self.modelViewProjection.mul_v::<4>(&vA.0).unwrap().to_vec();
-            let clipB: Vec<f32> = self.modelViewProjection.mul_v::<4>(&vB.0).unwrap().to_vec();
-            let clipC: Vec<f32> = self.modelViewProjection.mul_v::<4>(&vC.0).unwrap().to_vec();
-            
-            //convert to clip-space and transform to center of screen
-            let mut projA: Vec<f32> = clipA.iter().map(|c| c / clipA[3].max(0.01)).collect();
-            projA[0] += clipBox.width as f32 / 4.0;
-            projA[1] += clipBox.height as f32 / 4.0;
-            let mut projB: Vec<f32> = clipB.iter().map(|c| c / clipB[3].max(0.01)).collect();
-            projB[0] += clipBox.width as f32 / 4.0;
-            projB[1] += clipBox.height as f32 / 4.0;
-            let mut projC: Vec<f32> = clipC.iter().map(|c| c / clipC[3].max(0.01)).collect();
-            projC[0] += clipBox.width as f32 / 4.0;
-            projC[1] += clipBox.height as f32 / 4.0;
+            let clipA = self.modelViewProjection.mul_v::<4>(&vA.position).unwrap();
+            let clipB = self.modelViewProjection.mul_v::<4>(&vB.position).unwrap();
+            let clipC = self.modelViewProjection.mul_v::<4>(&vC.position).unwrap();
+
+            if clipA[3] < 0.1 || clipB[3] < 0.1 || clipC[3] < 0.1 { continue; }
+
+            let to_screen = |c: &[f32; 4]| -> [f32; 4] {
+                let inv_w = 1.0 / c[3];
+                let sx = (c[0] * inv_w * 0.5 + 0.5) * 0.5 * clipBox.width as f32;
+                let sy = (1.0 - (c[1] * inv_w * 0.5 + 0.5)) * 0.5 * clipBox.height as f32; // y down
+                [sx, sy, c[2] * inv_w, inv_w]
+            };
+
+            let projA = to_screen(&clipA);
+            let projB = to_screen(&clipB);
+            let projC = to_screen(&clipC);
+
 
             //calculate normals
-            let u = sub( &vA.0, &vB.0);
-            let v = sub(&vC.0, &vB.0);
-            let norm = normalize(&cross(&u, &v));
+            let u = &sub( &vA.position, &vB.position)[0..3];
+            let v = &sub(&vC.position, &vB.position)[0..3];
+            let mut norm = normalize(&cross(&u.as_array::<3>().unwrap(), &v.as_array::<3>().unwrap()));
 
-            let minX: usize = projA[0].min(projB[0].min(projC[0])) as usize;
-            let minY: usize = projA[1].min(projB[1].min(projC[1])) as usize;
-            let maxX: usize = projA[0].max(projB[0].max(projC[0])) as usize;
-            let maxY: usize = projA[1].max(projB[1].max(projC[1])) as usize;
-            let mut den: f32 = (projB[1] - projC[1]) * (projA[0] - projC[0]) + (projC[0] - projB[0]) * (projA[1] - projC[1]);
-            if den == 0.0 {den = 0.01}
+            let minX: usize = projA[0].min(projB[0].min(projC[0])).max(0.0) as usize;
+            let minY: usize = projA[1].min(projB[1].min(projC[1])).max(0.0) as usize;
+            let maxX: usize = projA[0].max(projB[0].max(projC[0])).min(clipBox.width as f32) as usize;
+            let maxY: usize = projA[1].max(projB[1].max(projC[1])).min(clipBox.height as f32) as usize;
+            let den: f32 = (projB[1] - projC[1]) * (projA[0] - projC[0]) + (projC[0] - projB[0]) * (projA[1] - projC[1]);
+            if den.abs() <= 0.001 {continue;}
             for x in minX..=maxX {
                 for y in minY..=maxY {
                     if x < clipBox.x as usize || x >= clipBox.width as usize|| y < clipBox.y as usize || y >= clipBox.height as usize {continue;}
@@ -169,15 +237,21 @@ impl Model {
 
                     let z: f32 = w0 * projA[2] + w1 * projB[2] + w2 * projC[2];
 
+                    if z < 0.0 || z > 1.0 { continue; }
                     
                     let col = colA.map2(&colB, |cA, cB| cA * w0 + cB * w1).map2(&colC, |cAB, cC| cAB + cC * w2);
-
+                    
+                    if vA.normal.is_some() && vB.normal.is_some() && vC.normal.is_some() {
+                        norm = Matrix::lerp(Matrix::lerp(vA.normal.unwrap(), vC.normal.unwrap(), w1),Matrix::lerp(vC.normal.unwrap(), vB.normal.unwrap(), w0),  w2)   
+                    }
                     let bufferWidth: usize = (clipBox.width - clipBox.x).into();
                     let index: usize = y as usize * bufferWidth + x as usize;
-                    pixel_buffer[index] = if pixel_buffer[index].is_some() && pixel_buffer[index].as_mut().unwrap().position[2] > z {
-                        pixel_buffer[index].clone()
-                    } else {
-                        Some(Fragment {color: col, position: [x as f32, y as f32, z], ascii: String::from("XX"), normal: norm})
+                    let closer = match &pixel_buffer[index] {
+                        Some(f) => z < f.position[2],
+                        None => true,
+                    };
+                    if closer {
+                        pixel_buffer[index] = Some(Fragment {color: col, position: [x as f32, y as f32, z], ascii: String::from("XX"), normal: norm})
                     }
                 }
             }
@@ -191,17 +265,17 @@ impl Model {
             let v: &[usize; 3] = v.as_array().unwrap();
             let verts= self.vertices.get_disjoint_mut(*v).unwrap();
             let verts = [(&verts[0], &verts[1]), (&verts[1], &verts[2]), (&verts[0], &verts[2])];
-            for ((pos, color), (next, nextColor)) in verts.iter(){
-                let pixelPos:[f32; 4]  = self.modelViewProjection.mul_v(pos).unwrap();
-                let nextPixel:[f32; 4]  = self.modelViewProjection.mul_v(next).unwrap();
+            for (v0, v1) in verts.iter(){
+                let pixelPos:[f32; 4]  = self.modelViewProjection.mul_v(&v0.position).unwrap();
+                let nextPixel:[f32; 4]  = self.modelViewProjection.mul_v(&v1.position).unwrap();
                 let dist: f32 = dist::<2>(&pixelPos[0..2], &nextPixel[0..2]);
 
-                let depth: f32 = (pos[2] - next[2]).abs();
+                let depth: f32 = (v0.position[2] - v1.position[2]).abs();
 
                 let mut vs: Vec<(f32, f32, f32, f32)> = Vec::new();
                 for t in 0..=dist as usize {
                     let [mut lx, mut ly, mut lz, w] = Matrix::lerp(pixelPos, nextPixel, t as f32 / dist);
-                    let c = Matrix::lerp(color.0, nextColor.0, t as f32 / dist);
+                    let c = Matrix::lerp(v0.color.0, v1.color.0, t as f32 / dist);
                     // let mut lx: f32 = pixelPos[0] + (nextPixel[0] - pixelPos[0]) * (t as f32/dist);
                     // let mut ly: f32 = pixelPos[1] + (nextPixel[1] - pixelPos[1]) * (t as f32/dist);
                     // let mut lz: f32 = pixelPos[2] + (nextPixel[2] - pixelPos[2]) * (t as f32/dist);

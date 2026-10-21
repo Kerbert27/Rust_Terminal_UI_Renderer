@@ -9,6 +9,8 @@ dependencies = [
  "crossterm",
  "image",
  "lib",
+ "track",
+ "track_macros",
 ]
 
 [[package]]

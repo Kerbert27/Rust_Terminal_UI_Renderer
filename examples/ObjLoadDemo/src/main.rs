@@ -11,7 +11,10 @@ use std::env;
 
 use lib::*;
 
+use track::*;
+
 const TARGET_FRAMERATE: f32 = 60.0;
+
 
 fn main() {
     let _args: Vec<String> = env::args().collect();
@@ -30,6 +33,8 @@ fn main() {
             _window.args(["/c", "start", "cmd", "/k", "cargo run -- original"]).spawn().expect("Failed to create new Terminal");
         }
     }
+
+    
     
 }
 
@@ -52,7 +57,7 @@ fn LaunchTerminal() {
     
     let mut previous_time: time::Instant = time::Instant::now();
     let mut stdout:Stdout  = io::stdout();
-    stdout.queue(terminal::SetSize(200, 200)).unwrap();
+    stdout.queue(terminal::SetSize(150, 40)).unwrap();
     stdout.queue(terminal::EnterAlternateScreen).unwrap();
     stdout.queue(terminal::DisableLineWrap).unwrap();
     terminal::enable_raw_mode().unwrap();
@@ -62,9 +67,10 @@ fn LaunchTerminal() {
     let mut context: Context = InitializeContext();
     context.draw_time = Timer::new(10);
     context.start_time = time::Instant::now();
+    
     loop {
         Update(&mut context).unwrap();
-        if context.delta_time >= 1.0 / TARGET_FRAMERATE {
+        //if context.delta_time >= 1.0 / TARGET_FRAMERATE {
             stdout.queue(terminal::BeginSynchronizedUpdate).unwrap();
             stdout.queue(cursor::Hide).unwrap();
             stdout.queue(terminal::DisableLineWrap).unwrap();
@@ -80,18 +86,20 @@ fn LaunchTerminal() {
             stdout.flush().unwrap();
             context.frame = (context.frame + 1) % TARGET_FRAMERATE as u32;
             
+            //}
+            
+            
+            
+            
+            context.delta_time = previous_time.elapsed().as_secs_f32();
             previous_time = time::Instant::now();
-        }
-        
-        
-        
-        context.delta_time = previous_time.elapsed().as_secs_f32();
         
     }
 }
 
 
 
+//Fragment Shader
 fn pixel_update(lightPositon: [f32;3], input: Fragment, time: f32) -> (String, image::Rgb<f32>) {
     let ascii = match input.normal {
         d if dot::<3>(&d, &lightPositon) >= 0.2 => String::from("██"),
@@ -100,18 +108,24 @@ fn pixel_update(lightPositon: [f32;3], input: Fragment, time: f32) -> (String, i
         _ => String::from("░░")
     };
 
-    let n = match input.normal {
-        d if dot::<3>(&d, &[0.0, 1.0, 0.0]) >= 0.1 => Rgb([255.0, 0.0, 0.0]),
-        d if dot::<3>(&d, &[0.0, -1.0, 0.0]) >= 0.1 => Rgb([255.0, 0.0, 0.0]),
-        d if dot::<3>(&d, &[1.0, 0.0, 0.0]) >= 0.1 => Rgb([0.0, 255.0, 0.0]),
-        d if dot::<3>(&d, &[-1.0, 0.0, 0.0]) >= 0.1 => Rgb([0.0, 255.0, 0.0]),
-        d if dot::<3>(&d, &[0.0, 0.0, 1.0]) >= 0.1 => Rgb([0.0, 0.0, 255.0]),
-        d if dot::<3>(&d, &[0.0, 0.0, -1.0]) >= 0.1 => Rgb([0.0, 0.0, 255.0]),
-        _ => Rgb([255.0, 255.0, 255.0])
-    };
+    // let n = match input.normal {
+    //     d if dot::<3>(&d, &[0.0, 1.0, 0.0]) >= 0.5 => Rgb([255.0, 0.0, 0.0]),
+    //     d if dot::<3>(&d, &[0.0, -1.0, 0.0]) >= 0.5 => Rgb([255.0, 255.0, 0.0]),
+    //     d if dot::<3>(&d, &[1.0, 0.0, 0.0]) >= 0.5 => Rgb([0.0, 255.0, 0.0]),
+    //     d if dot::<3>(&d, &[-1.0, 0.0, 0.0]) >= 0.5 => Rgb([0.0, 255.0, 255.0]),
+    //     d if dot::<3>(&d, &[0.0, 0.0, 1.0]) >= 0.5 => Rgb([0.0, 0.0, 255.0]),
+    //     d if dot::<3>(&d, &[0.0, 0.0, -1.0]) >= 0.5 => Rgb([255.0, 0.0, 255.0]),
+    //     _ => Rgb([255.0, 255.0, 255.0])
+    // };
 
-    let c = Matrix::lerp(input.color.0, input.color.0.map(|p| -p + 255.0), (time % 1.0));
-    return (ascii, input.color);
+    let color = [
+        Matrix::lerp([0.0], [255.0], (dot::<3>(&input.normal, &[1.0, 0.0, 0.0]) + 1.0) * 0.5)[0],
+        Matrix::lerp([0.0], [255.0], (dot::<3>(&input.normal, &[0.0, 1.0, 0.0]) + 1.0) * 0.5)[0],
+        Matrix::lerp([0.0], [255.0], (dot::<3>(&input.normal, &[0.0, 0.0, 1.0]) + 1.0) * 0.5)[0],
+    ];
+
+    //let c = Matrix::lerp(input.color.0, input.color.0.map(|p| -p + 255.0), (time % 1.0));
+    return (ascii, Rgb(color));
 }
 
 fn InitializeContext() -> Context {
@@ -120,10 +134,12 @@ fn InitializeContext() -> Context {
     
 
     let buffer = Box::new(StdoutBuffer::new(W as usize, H as usize));
+    //buffer.fill("XX".to_string());
 
     let mut elements: Vec<Element> = Vec::new();
+    let transform = Transform {position: [0.0, 0.0, 0.0], scale: [1.0,1.0, 1.0], rotation: [0.0, 0.0, 0.0]};
 
-    let camera = Camera::new(Transform {position: [0.0, 0.0, 5.0], scale: [0.0,0.0,0.0], rotation: [0.0, 0.0, 0.0]});
+    let camera = Camera::new(Transform {position: [0.0, 10.0, -100.0], scale: [0.0,0.0,0.0], rotation: [0.0, 0.0, 0.0]}, transform);
     let cameraPtr = Rc::from(RefCell::new(camera));
 
     let mut pixArray: ScreenBuffer = ScreenBuffer::new(
@@ -133,21 +149,31 @@ fn InitializeContext() -> Context {
     );
 
 
-    let transform = Transform {position: [0.0, 0.0, 0.0], scale: [1.0,1.0, 1.0], rotation: [0.0, 0.0, 0.0]};
 
 
-    let projectionP: Matrix<4> = Matrix::create_projection_persp(1.0 , PI/4.0, 100.0, 1.0);
-    let projectionO: Matrix<4> = Matrix::create_projection_ortho(0.0, 4.0 , 4.0, 0.0, -10.0, 10.0);
+    let projectionP: Matrix<4> = Matrix::create_projection_persp(W as f32/ H as f32 , (45.0 as f32).to_radians(), 1000.0, 0.1);
+    let projectionO: Matrix<4> = Matrix::create_projection_ortho(0.0, 4.0 , 4.0, 0.0, 1000.0, 0.1);
 
-    let model = Model::load_from_obj("../../obj/gourd.obj", transform, cameraPtr.borrow_mut().view.clone(), projectionP, RasterMode::AsTriangles);
+    let model = Model::load_from_obj("../../obj/teapot.obj", transform, cameraPtr.borrow_mut().view.clone(), projectionP, RasterMode::AsTriangles);
 
     pixArray.add_model(&model);
+
+    //model.save_to_obj("../../obj/sample.obj").unwrap();
+
+    let mut m2 = model.clone();
+    m2.transform.position = [-50.0, -50.0, 5.0];
+    //pixArray.add_model(&m2);
     
 
     elements.push(Element::ScreenBuffer(pixArray));
 
-    let text = TextBox::new(Rectangle{x: 0, y: 0, width: 20, height: 5, fill: RectFill::EmptyAndBoxed}, String::from("Hello"));
+    let text = TextBox::new(Rectangle{x: 0, y: 0, width: 30, height: 5, fill: RectFill::EmptyAndBoxed}, String::from("Hello"));
     elements.push(Element::TextBox(text));
+
+    let mut timeline = Timeline::new(Rectangle{x: 100, y: 30, width: 20, height: 40, fill: RectFill::EmptyAndBoxed}, 20, RangeType::Average, RangeType::Average);
+    timeline.add_time_plot("FPS", Variable {name: "FPS", range: (0.00, 120.00)}, Color::Blue);
+
+    //elements.push(Element::Timeline(timeline));
 
 
     Context {frame: 0, delta_time: 0.0, poll_event: None, buffer, W, H,  elements, camera: cameraPtr, draw_time: Timer::new(1), start_time: time::Instant::now()}
@@ -155,28 +181,46 @@ fn InitializeContext() -> Context {
 
 
 
+#[track]
 fn Update(context: &mut Context) -> Result<bool> {
     if poll(time::Duration::ZERO).unwrap() {
         context.poll_event = read().ok();
     }
 
+    let mut frags = 0;
     for e in context.elements.iter_mut() {
         match e {
             Element::Box(r) => {},
             Element::Sprite(s) => {},
             Element::TextBox(t) => {
-                t.text = format!("(X, Y): {}, {}", context.camera.borrow().view_angles.0, context.camera.borrow().view_angles.1);
+                if context.frame % 5 == 0 {
+                    let rt = track::get_or_default("rasterize").get_mean_time().as_secs_f32();
+                    let ft = track::get_or_default("frag_shader").get_mean_time().as_secs_f32();
+                    let st=track::get_or_default("write_all").get_mean_time().as_secs_f32();
+                    t.text = format!("Raster: {:?}, Frag: {:?}, Stdout: {:?}, FPS: {:?}, est_fps: {:.3}", 
+                        1.0 / rt, 
+                        1.0 / ft,
+                        1.0 / st,
+                        1.0 / context.delta_time,
+                        1.0 / (rt + ft + st)
+                    );
+                }
+
+                if track::get_or_default("write_to").calls >= 100 {
+                    track::reset_all();
+                }
             },
             Element::ScreenBuffer(p) => {
                 p.update(context.delta_time as f32, context.poll_event.clone());
+                
             },
             Element::Graph(g) => {
                 //g.update(|g| g.set_at(0, context.frame as f32).unwrap());
             },
             Element::Timeline(t) => {
                 //dbg!(context.frame);
-                if context.frame % 10 == 0 {
-                    //t.push_step("Plot 1", context.start_time.elapsed().as_secs_f32(), track::get_or_default("Draw").get_mean_time().as_secs_f32());
+                if context.frame % 60 == 0 {
+                    //t.push_step("FPS", context.start_time.elapsed().as_secs_f32(), 1.0 / context.delta_time);
                     //t.push_step("Plot 2", context.start_time.elapsed().as_secs_f32(), track::get_or_default("draw_at").total_time.as_secs_f32());
                 }
             }
@@ -186,13 +230,15 @@ fn Update(context: &mut Context) -> Result<bool> {
     Ok(true)
 }
 
-
+#[track]
 fn Draw(context: &mut Context) {
     for e in context.elements.iter_mut() {
         match e {
             Element::Box(r) => r.draw(&mut context.buffer),
             Element::Sprite(s) => s.draw(&mut context.buffer),
-            Element::TextBox(t) => t.draw(&mut context.buffer),
+            Element::TextBox(t) => {
+                t.draw(&mut context.buffer);
+            },
             Element::ScreenBuffer(p) => p.draw(&mut context.buffer, context.start_time),
             Element::Graph(g) => g.draw(&mut context.buffer),
             Element::Timeline(t) => t.draw(&mut context.buffer),
