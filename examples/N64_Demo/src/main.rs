@@ -69,7 +69,7 @@ fn LaunchTerminal() {
     context.start_time = time::Instant::now();
     loop {
         Update(&mut context).unwrap();
-        if context.delta_time > 1.0 / TARGET_FRAMERATE {
+        //if context.delta_time > 1.0 / TARGET_FRAMERATE {
             stdout.queue(terminal::BeginSynchronizedUpdate).unwrap();
             stdout.queue(cursor::Hide).unwrap();
             stdout.queue(terminal::DisableLineWrap).unwrap();
@@ -84,13 +84,13 @@ fn LaunchTerminal() {
             context.buffer.write_to(&mut stdout);
             stdout.flush().unwrap();
             //context.frame = (context.frame + 1) % TARGET_FRAMERATE as u32;
+            
+            //}
+            
+            
+            
+            context.delta_time = previous_time.elapsed().as_secs_f32();
             previous_time = time::Instant::now();
-
-        }
-        
-        
-        
-        context.delta_time = previous_time.elapsed().as_secs_f32();
         
     }
 }
@@ -128,7 +128,9 @@ fn InitializeContext() -> Context {
 
     let mut elements: Vec<Element> = Vec::new();
 
-    let camera = Camera::new(Transform {position: [0.0, 0.0, 5.0], scale: [0.0,0.0,0.0], rotation: [0.0, 0.0, 0.0]});
+    let transform = Transform {position: [0.0, 0.0, 0.0], scale: [1.0,1.0, 1.0], rotation: [0.0, 0.0, 0.0]};
+    
+    let camera = Camera::new(Transform {position: [0.0, 0.0, -5.0], scale: [0.0,0.0,0.0], rotation: [0.0, 0.0, 0.0]}, transform);
 
     let cameraPtr = Rc::from(RefCell::new(camera));
 
@@ -142,7 +144,6 @@ fn InitializeContext() -> Context {
     // dbg!(camera.look_at([0.0, 0.0, 0.0], [0.0, 1.0, 0.0]));
     // panic!();
 
-    let transform = Transform {position: [0.0, 0.0, 0.0], scale: [1.0,1.0, 1.0], rotation: [0.0, 0.0, 0.0]};
     // let view = Matrix::from(vec![
     //     vec![1.0, 0.0, 0.0, 0.0],
     //     vec![0.0, 1.0, 0.0, 0.0],
@@ -176,10 +177,10 @@ fn InitializeContext() -> Context {
         [2.0, 1.33, -1.0],
     ];
 
-    let mesh: Vec<([f32; 3], Rgb<f32>)> = mesh.iter().map(|v| (*v, Rgb([255.0, 0.0, 0.0]))).collect();
-    let bridge: Vec<([f32; 3], Rgb<f32>)> = bridge.iter().map(|v| (*v, Rgb([255.0, 255.0, 255.0]))).collect();
+    let mesh = mesh.iter().map(|v| VertexData::new_p(*v)).collect();
+    let bridge = bridge.iter().map(|v| VertexData::new_p(*v)).collect();
 
-    let projectionP: Matrix<4> = Matrix::create_projection_persp(1.0 , PI/4.0, 100.0, 1.0);
+    let projectionP: Matrix<4> = Matrix::create_projection_persp(W as f32 / H as f32 , (45.0 as f32).to_radians(), 1000.0, 1.0);
     let projectionO: Matrix<4> = Matrix::create_projection_ortho(0.0, 4.0 , 4.0, 0.0, -10.0, 10.0);
 
     let mut model = Model::new(
@@ -234,7 +235,7 @@ fn InitializeContext() -> Context {
             _ => &[0.0, 0.0, 0.0]
         };
         if i < 3{
-            let mut v = m.vertices.iter().map(|v| (add(&v.0, v_add), Rgb([0.0, 255.0, 0.0]))).collect();
+            let mut v = m.vertices.iter().map(|v| VertexData::new_p(add(&v.position[0..3].as_array::<3>().unwrap(), v_add))).collect();
             let mut ind = m.indices.iter().map(|i| i + model.vertices.len()).collect();
             model.vertices.append(&mut v);
             model.indices.append(&mut ind);
@@ -242,16 +243,24 @@ fn InitializeContext() -> Context {
         //model.combine(&mut m.clone());
         b.vertices = b.vertices.iter().map(
             |v| 
-            (Matrix::<4>::rotate_around(0.0, -PI/2.0, 0.0, [-1.5, 0.0, -0.5]).mul_v(&v.0).unwrap(), Rgb([0.0, 255.0, 255.0]))
+            VertexData::new_p(Matrix::<4>::rotate_around(0.0, -PI/2.0, 0.0, [-1.5, 0.0, -0.5]).mul_v(&v.position).unwrap())
         ).collect();
         let mut b_ind = b.indices.iter().map(|i| i + model.vertices.len()).collect();
         model.vertices.append(&mut b.vertices.clone());
         model.indices.append(&mut b_ind);
     }
-
-    let point = Model::point([0.0, 0.0, 0.0], Rgb([255.0, 255.0, 255.0]), cameraPtr.borrow_mut().view.clone(), projectionP.clone());
+    
+    model.vertices = model.vertices.iter_mut().map(
+        |v| 
+        {
+            v.position = add(&v.position, &[-1.5, -1.5, -0.5, 0.0]);
+            *v
+    }
+    ).collect();
+    //let point = Model::point([5.0, 5.0,5.0], Rgb([255.0, 0.0, 0.0]), cameraPtr.borrow_mut().view.clone(), projectionP.clone());
+    //cameraPtr.borrow_mut().transform = point.transform;
+    //ixArray.add_model(&point);
     pixArray.add_model(&model);
-    //pixArray.add_model(&point);
     
 
     elements.push(Element::ScreenBuffer(pixArray));
@@ -307,8 +316,6 @@ fn Draw(context: &mut Context) {
             Element::Graph(g) => g.draw(&mut context.buffer),
             Element::Timeline(t) => t.draw(&mut context.buffer),
         }
-
-        //dbg!(&context.buffer.buffer);
     }
 
     
