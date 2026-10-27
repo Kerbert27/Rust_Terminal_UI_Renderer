@@ -1,23 +1,21 @@
 #![allow(non_snake_case)]
 
-use crossterm::cursor::MoveTo;
-use crossterm::event::{self, Event, poll, read};
-use crossterm::style::{Color, Stylize};
-use crossterm::{QueueableCommand, terminal, cursor};
-use image::{Pixel, Rgb};
-use lib::{Model, Quad};
-use std::collections::VecDeque;
+use crossterm::event::{poll, read};
+use crossterm::terminal;
+use image::Rgb;
 use std::f32::consts::PI;
-use std::io::{self, Result, Stdout, Write};
 use std::process::Command;
 use std::{env};
-use std::time::{self, Duration, Instant};
 use std::rc::Rc;
 use std::cell::RefCell;
+
+use track::*;
 
 use lib::*;
 
 const TARGET_FRAMERATE: f32 = 60.0;
+const WINDOW_WIDTH: usize = 160;
+const WINDOW_HEIGHT: usize = 50;
 
 fn main() {
     let _args: Vec<String> = env::args().collect();
@@ -27,7 +25,10 @@ fn main() {
     let cmd: &str = _args.last().unwrap_or(emptyString).as_str();
     let mut _window: Command = Command::new("cmd");
     match cmd {
-        "original" => {LaunchTerminal();},
+        "original" => {
+            Set_Window_Size(WINDOW_WIDTH, WINDOW_HEIGHT);
+            LaunchTerminal(Box::new(InitializeContext), Box::new(Update), Box::new(Draw));
+        },
         // "hot" => {
         //     Command::new("cmd").args(["/c", "start", "cmd", "/k", "cargo watch -w lib -x 'build -p lib'"]).spawn().expect("Failed to create new Terminal");
         //     _window.args(["/c", "start", "cmd", "/k", "cargo run -- original"]).spawn().expect("Failed to create new Terminal");
@@ -39,73 +40,22 @@ fn main() {
     
 }
 
+const BLOCK: char = '█';
+const SHADE_LIGHT: char = '▓';
+const SHADE_MED: char = '▒';
+const SHADE_DARK : char = '░';
 
-pub struct Context {
-    pub frame: u32,
-    pub delta_time: f32,
-    pub poll_event: Option<Event>,
-    pub buffer: Box<StdoutBuffer>,
-    pub W: u16,
-    pub H: u16,
-    pub elements: Vec<Element>,
-    pub draw_time: Timer,
-    pub start_time: Instant,
-}
-
-
-fn LaunchTerminal() {
-    
-    let mut previous_time: time::Instant = time::Instant::now();
-    let mut stdout:Stdout  = io::stdout();
-    stdout.queue(terminal::SetSize(200, 200)).unwrap();
-    stdout.queue(terminal::EnterAlternateScreen).unwrap();
-    stdout.queue(terminal::DisableLineWrap).unwrap();
-    terminal::enable_raw_mode().unwrap();
-    stdout.queue(cursor::DisableBlinking).unwrap();
-    stdout.queue(cursor::Hide).unwrap();
-    stdout.flush();
-    let mut context: Context = InitializeContext();
-    context.draw_time = Timer::new(10);
-    context.start_time = time::Instant::now();
-    loop {
-        Update(&mut context).unwrap();
-        //if context.delta_time > 1.0 / TARGET_FRAMERATE {
-            stdout.queue(terminal::BeginSynchronizedUpdate).unwrap();
-            stdout.queue(cursor::Hide).unwrap();
-            stdout.queue(terminal::DisableLineWrap).unwrap();
-            stdout.queue(event::EnableMouseCapture).unwrap();
-            stdout.queue(cursor::DisableBlinking).unwrap();
-            context.buffer.fill(" ".to_string());
-            Draw(&mut context);
-            stdout.queue(terminal::EndSynchronizedUpdate).unwrap();
-            
-            
-            
-            context.buffer.write_to(&mut stdout);
-            stdout.flush().unwrap();
-            //context.frame = (context.frame + 1) % TARGET_FRAMERATE as u32;
-            
-            //}
-            
-            
-            
-            context.delta_time = previous_time.elapsed().as_secs_f32();
-            previous_time = time::Instant::now();
-        
-    }
-}
-
-
-
-fn pixel_update(lightPositon: [f32;3], input: Fragment, time: f32) -> (String, image::Rgb<f32>) {
+//Fragment Shader
+#[track]
+fn pixel_update(lightPositon: [f32;3], input: &Fragment, time: f32) -> (char, image::Rgb<f32>) {
     let ascii = match input.normal {
-        d if dot::<3>(&d, &lightPositon) >= 0.2 => String::from("██"),
-        d if dot::<3>(&d, &lightPositon) >= 0.001 => String::from("▓▓"),
-        d if dot::<3>(&d, &lightPositon) >= -0.5 => String::from("▒▒"),
-        _ => String::from("░░")
+        d if dot::<3>(&d, &lightPositon) >= 0.2 => BLOCK,
+        d if dot::<3>(&d, &lightPositon) >= 0.001 => SHADE_LIGHT,
+        d if dot::<3>(&d, &lightPositon) >= -0.5 => SHADE_MED,
+        _ => SHADE_DARK
     };
 
-    let n = match input.normal {
+    let color = match input.normal {
         d if dot::<3>(&d, &[0.0, 1.0, 0.0]) >= 0.1 => Rgb([255.0, 0.0, 0.0]),
         d if dot::<3>(&d, &[0.0, -1.0, 0.0]) >= 0.1 => Rgb([255.0, 0.0, 0.0]),
         d if dot::<3>(&d, &[1.0, 0.0, 0.0]) >= 0.1 => Rgb([0.0, 255.0, 0.0]),
@@ -114,11 +64,10 @@ fn pixel_update(lightPositon: [f32;3], input: Fragment, time: f32) -> (String, i
         d if dot::<3>(&d, &[0.0, 0.0, -1.0]) >= 0.1 => Rgb([0.0, 0.0, 255.0]),
         _ => Rgb([255.0, 255.0, 255.0])
     };
+;
 
-    let c = Matrix::lerp(input.color.0, input.color.0.map(|p| -p + 255.0), (time % 1.0));
-    return (ascii, n);
+    return (ascii, color);
 }
-
 fn InitializeContext() -> Context {
     
     let (W, H) = terminal::size().unwrap();
@@ -134,26 +83,38 @@ fn InitializeContext() -> Context {
 
     let cameraPtr = Rc::from(RefCell::new(camera));
 
-    let mut pixArray: ScreenBuffer = ScreenBuffer::new(
+    let mut renderer: Renderer = Renderer::new(
         Rectangle { x: 0, y: 0, width: W, height: H, fill: RectFill::Empty},
         Box::new(pixel_update),
         Rc::clone(&cameraPtr)
     );
 
-    // dbg!(camera.clone().view);
-    // dbg!(camera.look_at([0.0, 0.0, 0.0], [0.0, 1.0, 0.0]));
-    // panic!();
+    let projectionP: Matrix<4> = Matrix::create_projection_persp(W as f32 / H as f32 , (20.0 as f32).to_radians(), 1000.0, 1.0);
+    let projectionO: Matrix<4> = Matrix::create_projection_ortho(0.0, 4.0 , 4.0, 0.0, -10.0, 10.0);
 
-    // let view = Matrix::from(vec![
-    //     vec![1.0, 0.0, 0.0, 0.0],
-    //     vec![0.0, 1.0, 0.0, 0.0],
-    //     vec![0.0, 0.0, 1.0, 0.0],
-    //     vec![0.0, 0.0, 0.0, 1.0]
-    // ]);
+    let modelLoad = Model::load_from_obj("../../obj/N64.obj", transform, cameraPtr.borrow_mut().view.clone(), projectionP.clone(), RasterMode::AsTriangles, &mut Vec::new());
 
+    let model: Model = if modelLoad.is_err() {
+        init_model(transform.clone(), cameraPtr.borrow_mut().view.clone(), projectionP.clone())
+    } else {
+        modelLoad.unwrap()
+    };
+    renderer.add_model(&model);
     
 
     
+    elements.push(Element::Renderer(renderer, Some(Box::new(RendererUpdate))));
+    let text = TextBox::new(Rectangle{x: 0, y: 0, width: 35, height: 7, fill: RectFill::EmptyAndBoxed}, String::from("Hello"));
+    elements.push(Element::TextBox(text, Some(Box::new(StatsUpdate))));
+
+    let logger = TextBox::new(Rectangle {x: 0, y: 10, width: 70, height: 5, fill: RectFill::EmptyAndBoxed}, String::new());
+    elements.push(Element::TextBox(logger, Some(Box::new(LoggerUpdate))));
+
+
+    Context {frame: 0, locked_framerate: None, delta_time: 0.0, poll_event: None, buffer, W, H, camera: cameraPtr,  elements, start_time: time::Instant::now(), textures: Vec::new()}
+}
+
+fn init_model(transform: Transform, view: Matrix<4>, projection: Matrix<4>) -> Model {
     let mesh = vec![
         [0.0, 0.0, 0.0],
         [0.0, 0.0, -1.0],
@@ -166,22 +127,19 @@ fn InitializeContext() -> Context {
     ];
 
     let bridge = vec![
-        [1.0, 1.66, 0.0],
-        [1.0, 1.66, -1.0],
-        [1.0, 3.0, 0.0],
-        [1.0, 3.0, -1.0],
+        [1.0, 1.5, 0.0],
+        [1.0, 1.5, -1.0],
+        [1.0, 0.0, 0.0],
+        [1.0, 0.0, -1.0],
 
-        [2.0, 0.0, 0.0],
-        [2.0, 0.0, -1.0],
-        [2.0, 1.33, 0.0],
-        [2.0, 1.33, -1.0],
+        [2.0, 3.0, 0.0],
+        [2.0, 3.0, -1.0],
+        [2.0, 1.5, 0.0],
+        [2.0, 1.5, -1.0],
     ];
 
     let mesh = mesh.iter().map(|v| VertexData::new_p(*v)).collect();
     let bridge = bridge.iter().map(|v| VertexData::new_p(*v)).collect();
-
-    let projectionP: Matrix<4> = Matrix::create_projection_persp(W as f32 / H as f32 , (45.0 as f32).to_radians(), 1000.0, 1.0);
-    let projectionO: Matrix<4> = Matrix::create_projection_ortho(0.0, 4.0 , 4.0, 0.0, -10.0, 10.0);
 
     let mut model = Model::new(
         mesh,
@@ -200,32 +158,32 @@ fn InitializeContext() -> Context {
             1, 4, 5,
             2, 3, 6
         ]
-        ,transform.clone(), cameraPtr.borrow_mut().view.clone(), projectionP.clone(), lib::RasterMode::AsTriangles
+        ,transform.clone(), view.clone(), projection.clone(), lib::RasterMode::AsTriangles
     );
 
     let b_model = Model::new(
         bridge,
         vec![
-            0, 6, 4,    //wrong
-            1, 7, 3,    //wrong
-            0, 3, 2,    //wrong
-            4, 7, 5,    //wrong
-            0, 4, 1,    //wrong
-            3, 7, 6,    //wrong
+            0, 4, 6,    //wrong
+            1, 3, 7,    //wrong
+            0, 2, 3,    //wrong
+            4, 5, 7,    //wrong
+            0, 1, 4,    //wrong
+            3, 6, 7,    //wrong
             
-            0, 2, 6,
-            1, 5, 7,
-            0, 1, 3,
-            4, 6, 7,
-            1, 4, 5,
-            2, 3, 6
+            0, 6, 2,
+            1, 7, 5,
+            0, 3, 1,
+            4, 7, 6,
+            1, 5, 4,
+            2, 6, 3
         ]
-        ,transform, cameraPtr.borrow_mut().view.clone(), projectionP.clone(), lib::RasterMode::AsTriangles
+        ,transform, view.clone(), projection.clone(), lib::RasterMode::AsTriangles
     );
 
 
 
-    let mut m = model.clone();
+    let m = model.clone();
     let mut b = b_model.clone();
     for i in 0..4 {
         let v_add = match i {
@@ -235,7 +193,7 @@ fn InitializeContext() -> Context {
             _ => &[0.0, 0.0, 0.0]
         };
         if i < 3{
-            let mut v = m.vertices.iter().map(|v| VertexData::new_p(add(&v.position[0..3].as_array::<3>().unwrap(), v_add))).collect();
+            let mut v = m.vertices.iter().map(|v| VertexData::new_p(add(&v.position[0..3], v_add))).collect();
             let mut ind = m.indices.iter().map(|i| i + model.vertices.len()).collect();
             model.vertices.append(&mut v);
             model.indices.append(&mut ind);
@@ -257,64 +215,63 @@ fn InitializeContext() -> Context {
             *v
     }
     ).collect();
-    //let point = Model::point([5.0, 5.0,5.0], Rgb([255.0, 0.0, 0.0]), cameraPtr.borrow_mut().view.clone(), projectionP.clone());
-    //cameraPtr.borrow_mut().transform = point.transform;
-    //ixArray.add_model(&point);
-    pixArray.add_model(&model);
-    
 
-    elements.push(Element::ScreenBuffer(pixArray));
+    model.save_to_obj("../../obj/N64.obj").unwrap();
+    return model;
+}
 
-    let text = TextBox::new(Rectangle{x: 0, y: 0, width: 20, height: 5, fill: RectFill::EmptyAndBoxed}, String::from("Hello"));
-    elements.push(Element::TextBox(text));
+fn StatsUpdate(textbox: &mut TextBox, context: &mut Context) {
+    if context.frame % 30 == 0 {
+        let mut out = String::new();
+        out.push_str(&format!("FPS: {}\n", 1.0 / context.delta_time));
+        for tracker in track::get_all() {
+            out.push_str(&format!("{}: {:.4} ms/frame", tracker.function_name, tracker.total_time.as_secs_f32()).to_string());
+            track::reset(tracker.function_name);
+            out.push('\n');
+        }
+        textbox.text = out;
+    }
+}
 
-
-    Context {frame: 0, delta_time: 0.0, poll_event: None, buffer, W, H,  elements, draw_time: Timer::new(1), start_time: time::Instant::now()}
+fn LoggerUpdate(textbox: &mut TextBox, context: &mut Context) {
+    textbox.text.clear();
+    for (i, log) in LOG.write().unwrap().iter().enumerate() {
+        if i >= textbox.rect.height as usize {
+            break;
+        }
+        textbox.text.push_str(log);
+        textbox.text.push_str("\n");
+    }
 }
 
 
+fn RendererUpdate(renderer: &mut Renderer, context: &mut Context) {
+    renderer.update(context.delta_time, context.poll_event.clone());
+    
+}
 
-fn Update(context: &mut Context) -> Result<bool> {
+fn Update(context: &mut Context) {
     if poll(time::Duration::ZERO).unwrap() {
         context.poll_event = read().ok();
     }
-
-    for e in context.elements.iter_mut() {
-        match e {
-            Element::Box(r) => {},
-            Element::Sprite(s) => {},
-            Element::TextBox(t) => {
-                t.text = format!("FPS: {}", 1.0 / context.delta_time);
-            },
-            Element::ScreenBuffer(p) => {
-                p.update(context.delta_time as f32, context.poll_event.clone());
-            },
-            Element::Graph(g) => {
-                //g.update(|g| g.set_at(0, context.frame as f32).unwrap());
-            },
-            Element::Timeline(t) => {
-                //dbg!(context.frame);
-                if context.frame % 10 == 0 {
-                    //t.push_step("Plot 1", context.start_time.elapsed().as_secs_f32(), track::get_or_default("Draw").get_mean_time().as_secs_f32());
-                    //t.push_step("Plot 2", context.start_time.elapsed().as_secs_f32(), track::get_or_default("draw_at").total_time.as_secs_f32());
-                }
-            }
-            
-        }
+    
+    let mut elements = std::mem::take(&mut context.elements);
+    for e in elements.iter_mut() {
+        Element::Update(e, context);
     }
-    Ok(true)
+    context.elements = elements;
 }
 
 
 fn Draw(context: &mut Context) {
     for e in context.elements.iter_mut() {
         match e {
-            Element::Box(r) => r.draw(&mut context.buffer),
-            Element::Sprite(s) => s.draw(&mut context.buffer),
-            Element::TextBox(t) => t.draw(&mut context.buffer),
-            Element::ScreenBuffer(p) => p.draw(&mut context.buffer, context.start_time),
-            Element::Graph(g) => g.draw(&mut context.buffer),
-            Element::Timeline(t) => t.draw(&mut context.buffer),
+            Element::Box(r, _) => r.draw(&mut context.buffer),
+            Element::Sprite(s, _) => s.draw(&mut context.buffer),
+            Element::TextBox(t, _) => t.draw(&mut context.buffer),
+            Element::Renderer(p, _) => p.draw(&mut context.buffer, context.start_time, &context.textures),
+            Element::Graph(g, _) => g.draw(&mut context.buffer),
+            Element::Timeline(t, _) => t.draw(&mut context.buffer),
         }
     }
 

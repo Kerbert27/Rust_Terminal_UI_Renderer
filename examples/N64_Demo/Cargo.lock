@@ -9,6 +9,7 @@ dependencies = [
  "crossterm",
  "image",
  "lib",
+ "track",
 ]
 
 [[package]]
@@ -489,6 +490,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e762b9b188634fc508d4ec54b62ea3d352c43fd431d18d05d46f559f217f4725"
 
 [[package]]
+name = "glob"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
+
+[[package]]
 name = "half"
 version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -609,8 +616,10 @@ name = "lib"
 version = "0.1.0"
 dependencies = [
  "crossterm",
+ "glob",
  "image",
  "imageproc",
+ "png",
  "track",
  "track_macros",
 ]
