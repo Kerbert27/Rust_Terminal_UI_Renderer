@@ -34,22 +34,25 @@ pub enum RangeType {
 
 #[derive(Clone)]
 pub struct GraphData {
-    pub x_var: Variable,
-    pub y_var: Variable,
+    pub x_var_info: Variable,
+    pub y_var_info: Variable,
     pub xy_pairs: VecDeque<(f32, f32)>,
     pub graphType: GraphType,
-    pub color: Color
+    pub color: Rgb<u8>
 }
 
 impl GraphData {
-    pub fn new(x_var: Variable , y_var: Variable, graphType: GraphType, color: Color) -> GraphData {
+    pub fn new(x_var_info: Variable , y_var_info: Variable, graphType: GraphType, color: Rgb<u8>) -> GraphData {
         let xy_pairs: VecDeque<(f32, f32)> = VecDeque::new();
         
-        GraphData {x_var, y_var, xy_pairs, graphType, color}
+        GraphData {x_var_info, y_var_info, xy_pairs, graphType, color}
     }
 
     pub fn push_back(&mut self, x: f32, y: f32) {
         self.xy_pairs.push_back((x, y));
+        self.x_var_info.range = (self.xy_pairs.iter().min_by_key(|p| p.0 as usize).unwrap().0, self.xy_pairs.iter().max_by_key(|p| p.0 as usize).unwrap().0);
+        self.y_var_info.range = (self.xy_pairs.iter().min_by_key(|p| p.1 as usize).unwrap().1, self.xy_pairs.iter().max_by_key(|p| p.1 as usize).unwrap().1);
+        //write_log(format!("y: {}, range: [{}, {}]", y, self.y_var_info.range.0, self.y_var_info.range.1));
     }
 
     ///Inserts (x, y) into xy_pairs. If x already exists within xy_pairs, updates with y. 
@@ -79,15 +82,30 @@ impl GraphData {
 
     pub fn draw(&self, stdout: &mut StdoutBuffer, rect: Rectangle, yRange: (f32, f32), xRange: (f32, f32)) {
         let mut prev = [0.0, 0.0];
+        //LOG.write().unwrap().push_front(format!("X Range: [{},{}], Y Range: [{},{}]", xRange.0, xRange.1, yRange.0, yRange.1));
         for (i, (x, y)) in self.xy_pairs.iter().enumerate(){
             let xspan = rect.span_x();
             let yspan = rect.span_y();
             //x position as screen position
-            let norm_x = Matrix::lerp([xspan[0] as f32], [xspan[1] as f32], i as f32 / (xRange.1 - xRange.0))[0];
+            let tx = if (xRange.1 - xRange.0).abs() <= 0.01  {
+                1.0
+            }
+            else {
+                Matrix::inv_lerp([xRange.0], [xRange.1], *x)[0]
+            };
+            let norm_x = Matrix::lerp([xspan[0] as f32], [xspan[1] as f32], tx)[0];
             //y position as screen position
+            let ty = if (yRange.1 - yRange.0).abs() <= 0.01  {
+                1.0
+            }
+            else {
+                Matrix::inv_lerp([yRange.0], [yRange.1], *y)[0]
+            };
+            let norm_y = Matrix::lerp([yspan[1] as f32], [yspan[0] as f32], ty)[0];
 
-            let t = Matrix::inv_lerp([yRange.0], [yRange.1], *y)[0];
-            let norm_y = Matrix::lerp([yspan[1] as f32], [yspan[0] as f32], t)[0];
+            
+            dbg!(x, y, tx, ty, xRange, yRange, xspan, yspan, norm_x, norm_y);
+            
 
             if i == 0 {
                 prev = [norm_x, norm_y]
@@ -96,19 +114,19 @@ impl GraphData {
             match self.graphType {
                 GraphType::Dot => {
                     //stdout.queue(MoveTo(norm_x as u16, norm_y as u16)).unwrap();
-                    stdout.write(norm_x as usize, norm_y as usize, "█".to_string());
+                    stdout.write(norm_x as usize, norm_y as usize, Cell {ch:'█', rgb: self.color.0});
                 }
                 GraphType::Line => {
-                    draw_line(stdout, prev, [norm_x, norm_y], "█".with(self.color).to_string());
+                    draw_line(stdout, prev, [norm_x, norm_y], Cell{ch: '█', rgb: self.color.0});
                 }
                 GraphType::Bar => {
-                    let bar_width = rect.width as f32 / self.x_var.range.1;
+                    let bar_width = rect.width as f32 / (self.x_var_info.range.1 - self.x_var_info.range.0);
                     Rectangle::draw(&Rectangle {
                         x: norm_x as u16 + bar_width as u16,
                         y: norm_y as u16,
                         width: bar_width as u16,
                         height: yspan[1] - norm_y as u16,
-                        fill: RectFill::Filled('X'.with(Color::Blue))
+                        fill: RectFill::Filled(Cell{ch: 'X', rgb: self.color.0})
                     }, stdout);
                     // draw_line(stdout, prev, [norm_x, norm_y]);
                     // draw_line(stdout, [norm_x, norm_y], [norm_x, yspan[1] as f32]);
@@ -121,6 +139,7 @@ impl GraphData {
 
             prev = [norm_x,  norm_y];
         }
+        //panic!();
     }
 
 }
@@ -172,7 +191,7 @@ impl Graph
 
         let (yMin, yMax) = match self.rangeTypeY {
             RangeType::Average | RangeType::DynamicAverage => {
-                let (minSums, maxSums) = self.plots.values().map(|p| p.y_var.range).fold((0.0, 0.0), |mut acc, s| {
+                let (minSums, maxSums) = self.plots.values().map(|p| p.y_var_info.range).fold((0.0, 0.0), |mut acc, s| {
                     acc.0 += s.0;
                     acc.1 += s.1;
                     acc
@@ -180,8 +199,9 @@ impl Graph
                 (minSums / self.plots.len() as f32, maxSums / self.plots.len() as f32)
                 },
             RangeType::MinMax  | RangeType::DynamicMinMax=> {
-                let max = self.plots.values().max_by(|a, b| a.y_var.range.1.total_cmp(&b.y_var.range.1)).unwrap().y_var.range.1;
-                let min = self.plots.values().min_by(|a, b| a.y_var.range.0.total_cmp(&b.y_var.range.0)).unwrap().y_var.range.0;
+                let max = self.plots.values().max_by(|a, b| a.y_var_info.range.1.total_cmp(&b.y_var_info.range.1)).unwrap().y_var_info.range.1;
+                let min = self.plots.values().min_by(|a, b| a.y_var_info.range.0.total_cmp(&b.y_var_info.range.0)).unwrap().y_var_info.range.0;
+                //write_log(format!("Max: {}, Min: {}", max, min));
                 (min, max)
             },
             RangeType::Static(min, max) => (min, max)
@@ -192,7 +212,7 @@ impl Graph
 
         let (xMin, xMax) = match self.rangeTypeX {
             RangeType::Average | RangeType::DynamicAverage => {
-                let (minSums, maxSums) = self.plots.values().map(|p| p.x_var.range).fold((0.0, 0.0), |mut acc, s| {
+                let (minSums, maxSums) = self.plots.values().map(|p| p.x_var_info.range).fold((0.0, 0.0), |mut acc, s| {
                     acc.0 += s.0;
                     acc.1 += s.1;
                     acc
@@ -200,20 +220,22 @@ impl Graph
                 (minSums / self.plots.len() as f32, maxSums / self.plots.len() as f32)
                 },
             RangeType::MinMax  | RangeType::DynamicMinMax=> {
-                let max = self.plots.values().max_by(|a, b| a.x_var.range.1.total_cmp(&b.x_var.range.1)).unwrap().x_var.range.1;
-                let min = self.plots.values().min_by(|a, b| a.x_var.range.0.total_cmp(&b.x_var.range.0)).unwrap().x_var.range.0;
+                let max = self.plots.values().max_by(|a, b| a.x_var_info.range.1.total_cmp(&b.x_var_info.range.1)).unwrap().x_var_info.range.1;
+                let min = self.plots.values().min_by(|a, b| a.x_var_info.range.0.total_cmp(&b.x_var_info.range.0)).unwrap().x_var_info.range.0;
                 (min, max)
             },
             RangeType::Static(min, max) => (min, max)
         };
 
+        //dbg!(xMin, xMax);
+
         
-        for y in 0..=self.rect.height {
+        for y in 1..self.rect.height {
             if y % 2 == 0 {
-                stdout.write_all(self.rect.x as usize + 1, (self.rect.y + y) as usize, "-".with(Color::DarkGrey).to_string().repeat(self.rect.width as usize - 2));
+                stdout.write_all(self.rect.x as usize + 1, (self.rect.y + y) as usize, &"-".to_string().repeat(self.rect.width as usize - 1));
                 
                 let y_label = Matrix::lerp([yMax], [yMin], y as f32 / self.rect.height as f32)[0];
-                draw_at(stdout, self.rect.x as usize - 5, (self.rect.y + y) as usize, format!("{:.3}", y_label));
+                stdout.write_all(self.rect.x as usize - 6, (self.rect.y + y) as usize, &format!("{:.2}", y_label));
             }
         }
         
@@ -221,12 +243,10 @@ impl Graph
             plot.1.draw(stdout, self.rect, (yMin, yMax), (xMin, xMax));
         }
         
-
-        //draw_at(stdout, self.rect.right(), self.rect.bottom() + 1, &self.xy_pairs.back().unwrap().0.to_string().into_bytes());
-        
     }
 }
 
+#[derive(Clone)]
 pub struct Timeline {
     pub graph: Graph,
     pub capacity: usize,
@@ -243,8 +263,8 @@ impl Timeline {
         Timeline {graph, capacity}
     }
 
-    pub fn add_time_plot(&mut self, name: &'static str, y_var: Variable, color: Color) {
-        self.graph.add_plot(name, GraphData::new(Variable {name: "Time", range: (0.0, self.capacity as f32)}, y_var, GraphType::Dot, color));
+    pub fn add_time_plot(&mut self, name: &'static str, y_var: Variable, color: Rgb<u8>) {
+        self.graph.add_plot(name, GraphData::new(Variable {name: "Time", range: (0.0, self.capacity as f32)}, y_var, GraphType::Line, color));
     }
 
     // pub fn update(&mut self, x: f32, y: f32) {
@@ -257,6 +277,7 @@ impl Timeline {
     }
 
     pub fn push_step(&mut self, key: &'static str, x: f32, y: f32) {
+        //LOG.write().unwrap().push_front(format!("{}, {}", x, y));
         self.graph.plots.get_mut(key).unwrap().push_back(x, y);
         if self.graph.plots.get_mut(key).unwrap().xy_pairs.len() > self.capacity {
             self.graph.plots.get_mut(key).unwrap().pop_front();

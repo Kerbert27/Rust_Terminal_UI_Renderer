@@ -1,19 +1,28 @@
 #![allow(non_snake_case)]
+use crossterm::{QueueableCommand, cursor, event};
+use crossterm::event::Event;
 pub use crossterm::style::{self, Color, StyledContent, Stylize};
 pub use crossterm::terminal::{self};
 pub use image::imageops::FilterType;
 pub use image::{DynamicImage, GenericImageView, ImageReader, Rgb};
+pub use std::cell::RefCell;
 pub use std::collections::VecDeque;
+pub use std::fs::File;
+pub use std::io::{self, BufReader, BufRead, Stdout, Write, Error};
+pub use std::rc::Rc;
+pub use std::sync::{LazyLock, RwLock};
+pub use std::sync::atomic::AtomicUsize;
+pub use png::{ColorType, Decoder};
 pub use std::time::{self, Duration, Instant};
 
-const BAR_H: &str = "─";
-const BAR_V: &str = "┃";
-const BAR_TL: &str = "┎";
-const BAR_TR: &str = "┒";
-const BAR_BL: &str = "┖";
-const BAR_BR: &str = "┛";
-const DOT_H: &str = "┅";
-const DOT_V: &str = "┇";
+const BAR_H: char = '─';
+const BAR_V: char = '┃';
+const BAR_TL: char = '┎';
+const BAR_TR: char = '┒';
+const BAR_BL: char = '┖';
+const BAR_BR: char = '┛';
+const DOT_H: char = '┅';
+const DOT_V: char = '┇';
 
 
 mod model;
@@ -28,26 +37,150 @@ pub use renderer::*;
 mod graph;
 pub use graph::*;
 
-use track_macros::*;
+mod texture;
+pub use texture::*;
+
+pub use track::*; 
+
+pub static LOG: LazyLock<RwLock<VecDeque<String>>> = LazyLock::new(|| RwLock::new(VecDeque::with_capacity(10)));
+
+pub fn write_log(log: String) {
+
+    LOG.write().unwrap().push_front(log);
+}
+
+pub fn write_once(log: String) {
+    if !LOG.write().unwrap().contains(&log) {
+        LOG.write().unwrap().push_front(log);
+    }
+}
 
 
-
+///A screen element that gets rendered with an optional Update function defined in your main module.
 pub enum Element {
-    Box(Rectangle),
-    TextBox(TextBox),
-    Sprite(Sprite),
-    ScreenBuffer(ScreenBuffer),
-    Graph(Graph),
-    Timeline(Timeline)
+    Box(Rectangle, Option<Box<dyn Fn(&mut Rectangle, &mut Context)>>),
+    TextBox(TextBox, Option<Box<dyn Fn(&mut TextBox, &mut Context)>>),
+    Sprite(Sprite, Option<Box<dyn Fn(&mut Sprite, &mut Context)>>),
+    Renderer(Renderer, Option<Box<dyn Fn(&mut Renderer, &mut Context)>>),
+    Graph(Graph, Option<Box<dyn Fn(&mut Graph, &mut Context)>>),
+    Timeline(Timeline, Option<Box<dyn Fn(&mut Timeline, &mut Context)>>)
+}
+
+impl Clone for Element {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Box(e, _) => Self::Box(e.clone(), None),
+            Self::Graph(e, _) => Self::Graph(e.clone(), None),
+            Self::TextBox(e, _) => Self::TextBox(e.clone(), None),
+            Self::Renderer(e, _) => Self::Renderer(e.clone(), None),
+            Self::Timeline(e, _) => Self::Timeline(e.clone(), None),
+            Self::Sprite(e, _) => Self::Sprite(e.clone(), None),
+        }
+    }
+}
+
+impl Element {
+    pub fn Update(&mut self, context: &mut Context) {
+        match self {
+            Element::TextBox(t, Some(update)) => {
+                (update)(t, context)
+            },
+            Element::Box(b, Some(update)) => {
+                (update)(b, context)
+            },
+            Element::Sprite(s, Some(update)) => {
+                (update)(s, context)
+            },
+            Element::Renderer(r, Some(update)) => {
+                (update)(r, context)
+            },
+            Element::Graph(g, Some(update)) => {
+                (update)(g, context)
+            },
+            Element::Timeline(t, Some(update)) => {
+                (update)(t, context)
+            },
+            _ => {}
+        };
+    }
+}
+
+#[derive(Clone)]
+pub struct Context {
+    pub frame: u32,
+    pub locked_framerate: Option<usize>,
+    pub delta_time: f32,
+    pub poll_event: Option<Event>,
+    pub buffer: Box<StdoutBuffer>,
+    pub W: u16,
+    pub H: u16,
+    pub elements: Vec<Element>,
+    pub camera: Rc<RefCell<Camera>>,
+    pub start_time: Instant,
+    pub textures: Vec<Texture>,
+}
+
+impl Context {
+    pub fn new(framerate: Option<usize>, buffer: Box<StdoutBuffer>, width: u16, height: u16, elements: Vec<Element>, camera: Rc<RefCell<Camera>>, textures: Vec<Texture>) -> Self {
+        Self {frame: 0, locked_framerate: framerate, delta_time: 1.0, poll_event: None, buffer, W: width, H: height, elements, camera, start_time: Instant::now(), textures}
+    }
+}
+
+static WIDTH: AtomicUsize = AtomicUsize::new(0);
+static HEIGHT: AtomicUsize = AtomicUsize::new(0);
+
+pub fn Set_Window_Size(width: usize, height: usize) {
+    LOG.write().unwrap().push_back("Hello".to_string());
+    WIDTH.store(width, std::sync::atomic::Ordering::Relaxed);
+    HEIGHT.store(height, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn LaunchTerminal(Initialize: Box<dyn Fn() -> Context>, Update: Box<dyn Fn(&mut Context)>, Draw: Box<dyn Fn(&mut Context)>) {
+    let mut previous_time: time::Instant = time::Instant::now();
+    let mut stdout:Stdout  = io::stdout();
+    // dbg!(&WIDTH, &HEIGHT);
+    // panic!();
+    stdout.queue(terminal::SetSize(WIDTH.load(std::sync::atomic::Ordering::Relaxed) as u16, HEIGHT.load(std::sync::atomic::Ordering::Relaxed) as u16)).unwrap();
+    stdout.queue(terminal::EnterAlternateScreen).unwrap();
+    stdout.queue(terminal::DisableLineWrap).unwrap();
+    terminal::enable_raw_mode().unwrap();
+    stdout.queue(cursor::DisableBlinking).unwrap();
+    stdout.queue(cursor::Hide).unwrap();
+    stdout.flush().unwrap();
+    let mut context: Context = (Initialize)();
+    context.delta_time = 1.0;
+    context.start_time = time::Instant::now();
+    
+    loop {
+        context.buffer.fill(Cell {ch: ' ', rgb: [0, 0, 0]});
+        (Update)(&mut context);
+        stdout.queue(terminal::BeginSynchronizedUpdate).unwrap();
+        stdout.queue(cursor::Hide).unwrap();
+        stdout.queue(terminal::DisableLineWrap).unwrap();
+        stdout.queue(event::EnableMouseCapture).unwrap();
+        stdout.queue(cursor::DisableBlinking).unwrap();
+        (Draw)(&mut context);
+        stdout.queue(terminal::EndSynchronizedUpdate).unwrap();
+        
+        
+        context.buffer.write_to(&mut stdout);
+        stdout.flush().unwrap();
+        context.frame += 1 % u32::MAX;
+        
+        
+        
+        context.delta_time = previous_time.elapsed().as_secs_f32();
+        previous_time = time::Instant::now();  
+    }
 }
 
 
 
 #[derive(Clone, Copy)]
 pub enum RectFill {
-    FilledAndBoxed(StyledContent<char>),
-    FilledAndDotted(StyledContent<char>),
-    Filled(StyledContent<char>),
+    FilledAndBoxed(Cell),
+    FilledAndDotted(Cell),
+    Filled(Cell),
     EmptyAndBoxed,
     EmptyAndDotted,
     Empty
@@ -90,7 +223,7 @@ impl RectFill {
 
     pub fn get_fill(&self) -> String {
         match self {
-            Self::Filled(c) | Self::FilledAndDotted(c) | Self::FilledAndBoxed(c)=> c.to_string(),
+            Self::Filled(c) | Self::FilledAndDotted(c) | Self::FilledAndBoxed(c)=> c.ch.to_string(),
             _ => String::from(" ")
         }
     }
@@ -107,20 +240,23 @@ pub struct Rectangle {
 }
 
 impl Rectangle {
+    pub fn new(x: u16, y: u16, width: u16, height: u16, fill: RectFill) -> Self {
+        Self {x, y, width, height, fill}
+    }
+
     pub fn draw(&self, stdout: &mut StdoutBuffer) {
         let (line_h, line_v) = self.fill.get_lines();
         
         if self.fill.isBounded() {
-            let s = format!("{}{}{}",BAR_TL, line_h.repeat(self.width as usize), BAR_TR);
-            draw_at(stdout, self.x.saturating_sub(1) as usize, self.y.saturating_sub(1) as usize, s);
-            let s = format!("{}{}{}", BAR_BL, line_h.repeat(self.width as usize), BAR_BR);
-            draw_at(stdout, self.x.saturating_sub(1) as usize, self.y as usize + self.height as usize + 1, s);
+            let s = format!("{}{}{}",BAR_TL, line_h.repeat(self.width as usize - 1), BAR_TR);
+            draw_at(stdout, self.x as usize, self.y as usize, s);
+            let s = format!("{}{}{}", BAR_BL, line_h.repeat(self.width as usize - 1), BAR_BR);
+            draw_at(stdout, self.x as usize, self.y as usize + self.height as usize + 1, s);
         }
 
-        let spacing: String = self.fill.get_fill().repeat(self.width as usize);
         for i in 0..self.height {
-            stdout.write(self.x.saturating_sub(1) as usize, (self.y + i + 1)as usize, line_v.clone());
-            stdout.write((self.x + self.width) as usize, (self.y + i + 1) as usize, line_v.clone());
+            draw_at(stdout, self.x as usize, (self.y + i + 1)as usize, line_v.to_string());
+            draw_at(stdout, (self.x + self.width) as usize, (self.y + i + 1) as usize, line_v.to_string());
         }
     }
 
@@ -162,11 +298,14 @@ impl Rectangle {
 
 }
 
+#[derive(Clone)]
 pub enum OverflowType {
     Wrap,
     Truncate,
     None
 }
+
+#[derive(Clone)]
 pub struct TextBox {
     pub rect: Rectangle,
     pub text: String,
@@ -177,6 +316,7 @@ pub struct TextBox {
     start_time: Option<time::Instant>
 
 }
+
 
 impl TextBox {
     pub fn new(rect: Rectangle, text: String) -> TextBox{
@@ -192,26 +332,30 @@ impl TextBox {
     }
     
     
-
     fn draw_x(&mut self, stdout: &mut StdoutBuffer, chars: String) {
         if self.showBorder {self.rect.draw(stdout);}
         let mut pos = (self.rect.x + self.showBorder as u16, self.rect.y + self.showBorder as u16);
-        //stdout.queue(MoveTo(self.rect.x + self.showBorder as u16, self.rect.y + self.showBorder as u16)).unwrap();
         let mut i: i32 = 0;
         for c in chars.chars() {
             pos.0 += 1;
+            if c == '\n' {
+                pos.1 += 1;
+                pos.0 = self.rect.x + self.showBorder as u16;
+                i = 0;
+                continue;
+            }
             if i as u16>= self.rect.width - (self.showBorder as u16 * 2) {
                 pos.1 += 1;
                 pos.0 = self.rect.x + self.showBorder as u16;  
-                //stdout.queue(cursor::MoveDown(1)).unwrap();
-                //stdout.queue(cursor::MoveToColumn(self.rect.x + self.showBorder as u16)).unwrap();
                 i = 0;
             }
-            stdout.write(pos.0 as usize, pos.1 as usize, c.to_string());
+            if pos.1 as u16 > self.rect.bottom() {
+                break;
+            }
+            stdout.write(pos.0 as usize, pos.1 as usize, Cell{ch: c, rgb: [255, 255, 255]});
             i += 1;
         }
     }
-
 
     fn animate(&mut self, stdout: &mut StdoutBuffer) {
         if self.reset {
@@ -251,6 +395,7 @@ impl PixelMark {
     pub const X_COLOR: Rgb<u8> = Rgb{0: [0,1,1]};
 }
 
+#[derive(Clone)]
 pub struct Sprite {
     pub rect: Rectangle,
     pub pixel_data: DynamicImage,
@@ -300,7 +445,7 @@ impl Sprite {
                 }
                 
             }
-            stdout.write(pos.0 as usize, pos.1 as usize, row_str);
+            stdout.write_all(pos.0 as usize, pos.1 as usize, &row_str);
         }
     }
 
@@ -344,7 +489,7 @@ impl Sprite {
                 };
                 row.push_str(shade.with(style::Color::Rgb { r, g, b }).to_string().as_str());
             }
-            stdout.write(pos.0 as usize, pos.1 as usize, row);
+            //stdout.write(pos.0 as usize, pos.1 as usize, row);
             //stdout.queue(Clear)).unwrap();
         }
     }
@@ -352,7 +497,7 @@ impl Sprite {
 
 
 
-
+#[derive(Clone)]
 pub struct Timer {
     pub size: usize,
     times: VecDeque<f32>,
@@ -405,18 +550,15 @@ pub fn draw_curve(stdout: &mut StdoutBuffer, start: [f32; 2], end: [f32; 2], con
         let b = Matrix::lerp(q0, q1, t as f32 / 10.0);
 
         let pos = (b[0] as usize, b[1] as usize);
-        stdout.write(pos.0, pos.1, "█".to_string());
+        stdout.write(pos.0, pos.1, Cell {ch: '█', rgb:[255, 255, 255]});
     }
 }
 
-pub fn draw_line(stdout: &mut StdoutBuffer, start: [f32; 2], end: [f32; 2], glyph: String) {
+pub fn draw_line(stdout: &mut StdoutBuffer, start: [f32; 2], end: [f32; 2], cell: Cell) {
     let dist = dist::<2>(&start[..], &end[..]);
-
     for t in 0..=dist as usize {
-        let xy = Matrix::lerp(start, end, t as f32 / dist);
-        let x = xy[0];
-        let y = xy[1];
-        draw_at(stdout, x as usize + 1, y as usize, glyph.clone());
+        let [x, y] = Matrix::lerp(start, end, t as f32 / dist);
+        stdout.write(x as usize + 1, y as usize, cell);
     }
 }
 
@@ -424,7 +566,7 @@ pub fn draw_line(stdout: &mut StdoutBuffer, start: [f32; 2], end: [f32; 2], glyp
 pub fn draw_at(stdout: &mut StdoutBuffer, col: usize, row: usize, bytes: String) -> bool {
     let (max_width, max_height) = terminal::size().unwrap();
     if (col > max_width as usize) || (row > max_height as usize) {return false}
-    stdout.write_all(col, row, bytes);
+    stdout.write_all(col, row, &bytes);
 
     return true;
 }

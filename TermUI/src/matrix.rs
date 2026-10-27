@@ -1,5 +1,5 @@
-use std::{fmt::Debug, ops::Add};
-
+use std::{fmt::Debug};
+use super::*;
 
 #[derive(Clone)]
 pub struct Matrix<const N: usize>{
@@ -36,10 +36,11 @@ impl<const N: usize> Matrix<N> {
         if index >= self.dimensions {
             panic!("Column index out of bounds");
         }
-        self.elements.iter()
+       self.elements.iter()
             .skip(index)
             .step_by(self.dimensions)
-            .copied().collect()
+            .copied()
+            .collect()
     }
 
     pub fn column_mut(&mut self, index: usize) -> Vec<&mut f32> {
@@ -95,23 +96,23 @@ impl<const N: usize> Matrix<N> {
     }
 
     
-    pub fn inv_lerp(v1: [f32; N], v2: [f32; N], t: f32) -> Vec<f32>{
-        let mut res = Vec::new();
+    pub fn inv_lerp(v1: [f32; N], v2: [f32; N], t: f32) -> [f32; N]{
+        let mut res = [0.0; N];
         for i in 0..N {
             let l = (t - v1[i]) / (v2[i] - v1[i]);
-            res.push(l);
+            res[i] = l;
         }
         res
     }
 
 
     pub fn lerp(v1: [f32; N], v2: [f32; N], t: f32) -> [f32; N]{
-        let mut res = Vec::new();
+        let mut res = [0.0; N];
         for i in 0..N {
             let l = v1[i] + (v2[i] - v1[i]) * t;
-            res.push(l);
+            res[i] = l;
         }
-        *res.as_array::<N>().unwrap()
+        res
     }
 
     pub fn create_projection_persp(aspect: f32, fov: f32, far: f32, near: f32) -> Matrix<N> {
@@ -120,7 +121,7 @@ impl<const N: usize> Matrix<N> {
         let c4 = (far * near)/(near - far);
 
         Matrix::from(vec![
-            vec![-f / aspect, 0.0, 0.0, 0.0],
+            vec![f / aspect, 0.0, 0.0, 0.0],
             vec![0.0, f, 0.0, 0.0],
             vec![0.0, 0.0, c3, c4],
             vec![0.0, 0.0, -1.0, 0.0],
@@ -130,7 +131,7 @@ impl<const N: usize> Matrix<N> {
     pub fn create_projection_ortho(left: f32, right: f32, top: f32, bottom: f32, far: f32, near: f32) -> Matrix<N>{
         let a1 = 2.0 / (right - left);
         let b2 = 2.0 / (top - bottom);
-        let c3 = 1.0 / (near - far);
+        let c3 = -2.0 / (far - near);
         let d1 = -(right + left)/(right - left);
         let d2 = -(top + bottom)/(top - bottom);
         let d3 = -(far + near)/(far - near);
@@ -140,7 +141,7 @@ impl<const N: usize> Matrix<N> {
             vec![0.0, b2, 0.0, d2],
             vec![0.0, 0.0, c3, d3],
             vec![0.0, 0.0, 0.0 ,1.0],
-        ])
+        ]).transpose()
     }
 
     pub fn mul(&self, other: &Matrix<N>) -> Result<Matrix<N>, &'static str> {
@@ -152,7 +153,7 @@ impl<const N: usize> Matrix<N> {
             let row_A = self.row(n);
             for m in 0..self.dimensions {
                 let col_B: Vec<f32> = other.column(m);
-                let sum: f32 = row_A.iter().zip(col_B.iter()).map(|(a, b)| a * b).sum();
+                let sum: f32 = row_A.iter().zip(col_B.iter()).fold(0.0, |sum, (a, b)| sum + a * b);
                 elements.push(sum);
             }
         }
@@ -167,13 +168,13 @@ impl<const N: usize> Matrix<N> {
         if self.dimensions > vec.len() {
             vec.append([1.0].repeat(self.dimensions - vec.len()).as_mut());
         }
-        let mut elements: Vec<f32> = Vec::new();
-        for d in 0..self.dimensions {
+        let mut elements = [0.0; M];
+        for d in 0..M {
             let row_A = self.row(d);
-            let sum: f32 = row_A.iter().zip(vec.iter()).map(|(a, b)| a * b).sum();
-            elements.push(sum);
+            let sum: f32 = row_A.iter().zip(vec.iter()).fold(0.0, |sum, (a, b)| sum + a * b);
+            elements[d] = sum;
         }
-        Ok(*elements[0..M].as_array::<M>().unwrap())
+        Ok(elements)
     }
 
     pub fn rotate_x(theta: f32) -> Matrix<4> {
@@ -268,12 +269,12 @@ impl<const N: usize> Matrix<N> {
 }
 
 ///Subtracts v2 from v1 element-wise
-pub fn sub<const N: usize>(v1: &[f32;N], v2: &[f32;N]) -> [f32; N] {
+pub fn sub<const N: usize>(v1: &[f32], v2: &[f32]) -> [f32; N] {
     let mut s: [f32; N] = [0.0; N];
     for i in 0..N {
         s[i] = v1[i] - v2[i];
     }
-    *s.as_array::<N>().unwrap()
+    s
 }
 
 ///Negates each element of v
@@ -286,12 +287,12 @@ pub fn abs<const N: usize>(v: &[f32; N]) -> [f32; N] {
 }
 
 ///Adds v1 to v2 element-wise
-pub fn add<const N: usize>(v1: &[f32; N], v2: &[f32; N]) -> [f32; N] {
+pub fn add<const N: usize>(v1: &[f32], v2: &[f32]) -> [f32; N] {
     let mut s: [f32; N] = [0.0; N];
     for i in 0..N {
         s[i] = v1[i] + v2[i];
     }
-    *s.as_array::<N>().unwrap()
+    s
 }
 
 ///Scale each component of a vector by a factor of s.
@@ -300,7 +301,7 @@ pub fn scale<const N: usize>(v: &[f32; N], s: f32) -> [f32; N] {
     for i in 0..N {
         r[i] = v[i] * s;
     }
-    *r.as_array::<N>().unwrap()
+    r
 }
 
 pub fn cross(v1: &[f32;3], v2: &[f32;3]) -> [f32; 3] {
@@ -325,7 +326,7 @@ pub fn normalize<const N: usize>(v1: &[f32; N]) -> [f32; N] {
 pub fn dot<const N: usize>(v1: &[f32; N], v2: &[f32; N]) -> f32 {
     let a = normalize(v1);
     let b = normalize(v2);
-    a.iter().zip(b).map(|(a, b)| a * b).sum()
+    a.iter().zip(b).fold(0.0, |sum, (a, b)| sum + *a * b)
 }
 
 ///Calculate square distance between two vectors
